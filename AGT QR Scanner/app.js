@@ -43,8 +43,8 @@ const el = {
     emailjsPublic: $('emailjs-public'),
     toEmail: $('to-email'),
     greeting: $('greeting'),
-    senderName: $('sender-name'),
-    signature: $('signature'),
+    senderName: $('sender-name'),   // weiter vorhanden, wird aber in der Mail nicht mehr genutzt
+    signature: $('signature'),      // weiter vorhanden, wird aber in der Mail nicht mehr genutzt
     testEmailjs: $('test-emailjs'),
     saveSettings: $('save-settings')
 };
@@ -98,7 +98,7 @@ const Order = {
           <div class="order-item-title">${esc(o.artikel)}</div>
           <div class="order-item-quantity">${o.menge}x</div>
         </div>
-        ${o.beschreibung ? `<div class="order-item-details">${esc(o.beschreibung)}</div>` : ``}
+        <!-- Beschreibung absichtlich entfernt -->
         <div class="quantity-controls">
           <label class="sr-only" for="qty-${i}">Menge</label>
           <span>Menge:</span>
@@ -176,7 +176,7 @@ const Scanner = {
     parse(data) {
         try {
             const o = JSON.parse(data);
-            return { artikel: o.artikel || o.name || o.title || o.product || 'Unbekannter Artikel', menge: Math.max(1, Number(o.menge || o.quantity || o.amount || 1)), beschreibung: o.beschreibung || o.description || o.details || '' };
+            return { artikel: o.artikel || o.name || o.title || o.product || 'Unbekannter Artikel', menge: Math.max(1, Number(o.menge || o.quantity || o.amount || 1)), beschreibung: '' /* Beschreibung wird bewusst ignoriert */ };
         } catch {
             return this.parseText(String(data));
         }
@@ -184,7 +184,7 @@ const Scanner = {
 
     parseText(text) {
         const clean = text.trim(); const lines = clean.split('\n').filter(l => l.trim());
-        let artikel = 'Unbekannter Artikel', menge = 1, beschreibung = '';
+        let artikel = 'Unbekannter Artikel', menge = 1;
         if (lines.length) {
             const parts = [];
             for (const raw of lines) {
@@ -200,11 +200,9 @@ const Scanner = {
                 const nums = clean.match(/\b\d+\b/g);
                 if (nums) { const c = nums.map(n => parseInt(n, 10)).filter(n => n > 1 && n < 10000); if (c.length) menge = Math.max(...c); }
             }
-            const tech = lines.filter(l => /ISO\s*\d+/i.test(l) || /[A-ZÄÖÜ]+[\s-]*\d+[xX]\d+/.test(l) || /[A-Za-zÄÖÜäöü]+\s*[A-Za-zÄÖÜäöü]*\s*\d+/.test(l));
-            if (tech.length) beschreibung = tech.join(', ');
         }
         artikel = artikel.replace(/^ALU\s*-?\s*/i, '').replace(/^GLAS\s*-?\s*/i, '').replace(/\s*Bestellmenge:.*$/i, '').replace(/\s*\d+\s*(STK|Stk|Stück).*$/i, '').trim().substring(0, 100);
-        return { artikel: artikel || 'Unbekannter Artikel', menge: Math.max(1, menge), beschreibung };
+        return { artikel: artikel || 'Unbekannter Artikel', menge: Math.max(1, menge), beschreibung: '' };
     },
 
     handleCameraError(e) {
@@ -230,64 +228,40 @@ const Email = {
         } catch (e) { Status.show(e.message, 'error'); return false; }
     },
 
+    // *** NUR Begrüßung + Liste der Artikel (fett), KEINE Beschreibung, KEINE weiteren Blöcke ***
     buildContent() {
         if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
 
         const s = Settings.get();
         const greet = (s.greeting || '').trim();
-        const sender = (s.senderName || '').trim();
-        const signature = (s.signature || '').trim();
-        const custom = el.customMessage.value.trim();
 
-        /* Plaintext */
+        // Plaintext (ohne Fett möglich)
         let text = '';
         if (greet) text += `${greet}\n\n`;
-        text += `hiermit bestelle ich folgende Artikel:\n\n`;
         orders.forEach((o, i) => {
             text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`;
-            if (o.beschreibung) text += `   Beschreibung: ${o.beschreibung}\n`;
         });
-        const totalArticles = orders.length;
-        const totalQty = orders.reduce((sum, o) => sum + o.menge, 0);
-        text += `\nZusammenfassung:\n- Artikel: ${totalArticles}\n- Gesamtmenge: ${totalQty} Stück\n\n`;
-        if (custom) text += `${custom}\n\n`;
-        text += `Mit freundlichen Grüßen\n`;
-        if (sender) text += `${sender}\n`;
-        text += `${CONFIG.fromName}\n${CONFIG.fromEmail}\n`;
-        if (signature) text += `\n${signature}\n`;
-        text += `\n---\nGesendet via QR-Scanner App | ${new Date().toLocaleString('de-DE')}`;
 
-        /* HTML – Artikel fett + übersichtlich */
+        // HTML mit fetten Artikeln + Mengen-Badge
         const htmlItems = orders.map((o) => `
       <div class="item">
-        <div><span class="item-title">${esc(o.artikel)}</span> <span class="qty">${o.menge}x</span></div>
-        ${o.beschreibung ? `<div class="line">${esc(o.beschreibung)}</div>` : ``}
+        <div><strong class="item-title">${esc(o.artikel)}</strong> <span class="qty">${o.menge}x</span></div>
       </div>
     `).join('');
         const html =
             `<div class="mail">
   ${greet ? `<div class="line">${esc(greet)}</div>` : ``}
-  <div class="line">hiermit bestelle ich folgende Artikel:</div>
   <div style="margin:.4rem 0 0 0"></div>
   ${htmlItems}
-  <div class="line" style="margin-top:.6rem"><strong>Zusammenfassung</strong></div>
-  <div class="line">• Artikel: <strong>${totalArticles}</strong></div>
-  <div class="line">• Gesamtmenge: <strong>${totalQty}</strong></div>
-  ${custom ? `<div class="line" style="margin-top:.6rem">${esc(custom)}</div>` : ``}
-  <div class="line" style="margin-top:1rem">Mit freundlichen Grüßen</div>
-  ${sender ? `<div class="line"><strong>${esc(sender)}</strong></div>` : ``}
-  <div class="line">${esc(CONFIG.fromName)}</div>
-  <div class="line">${esc(CONFIG.fromEmail)}</div>
-  ${signature ? `<div class="line" style="margin-top:.6rem">${esc(signature)}</div>` : ``}
-  <div class="line" style="margin-top:1rem;color:#94a3b8">— Gesendet via QR-Scanner App | ${esc(new Date().toLocaleString('de-DE'))}</div>
 </div>`;
+
         return { text, html, to: s.toEmail };
     },
 
     showPreview() {
         try {
             const { html } = this.buildContent();
-            el.emailPreview.innerHTML = html;         // <<— HTML, nicht Text
+            el.emailPreview.innerHTML = html;  // HTML-Vorschau
             el.emailPreviewContainer.classList.remove('hidden');
             Status.show('📧 E-Mail Vorschau wurde generiert', 'success');
         } catch (e) { Status.show(e.message, 'error'); }
@@ -316,9 +290,7 @@ const Email = {
                     order_count: String(orders.length),
                     total_quantity: String(orders.reduce((s, o) => s + o.menge, 0)),
                     timestamp: new Date().toLocaleString('de-DE'),
-                    greeting: el.greeting.value.trim(),
-                    sender_name: el.senderName.value.trim(),
-                    signature: el.signature.value.trim()
+                    greeting: el.greeting.value.trim()
                 }
             );
 
