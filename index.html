@@ -41,17 +41,21 @@
                     <label for="emailjs-public">Public Key:</label>
                     <input type="text" id="emailjs-public" placeholder="public_xxxxx" value="Z_1k1jXK8Qk9t8z3N">
                 </div>
-
                 <div class="form-group">
                     <label for="to-email">Empfänger E-Mail:</label>
                     <input type="email" id="to-email" placeholder="empfaenger@example.com"
                         value="keckeisfabian@outlook.com">
                 </div>
 
+                <h3 class="section-subtitle" style="margin-top:1rem;">Texte</h3>
                 <div class="form-group">
-                    <label for="greeting">Anrede/Begrüßung (z. B. „Hallo Wolfi, kannst du mir bitte folgende Artikel
-                        bestellen,“):</label>
-                    <input type="text" id="greeting" placeholder="Deine Standard-Anrede">
+                    <label for="greeting">Anrede/Begrüßung:</label>
+                    <input type="text" id="greeting"
+                        placeholder="z. B. Hallo Wolfi, kannst du mir bitte folgende Artikel bestellen,">
+                </div>
+                <div class="form-group">
+                    <label for="signature">Signatur (Absender):</label>
+                    <input type="text" id="signature" placeholder="z. B. Fabian Keckeis">
                 </div>
 
                 <div class="button-row">
@@ -62,7 +66,7 @@
         </div>
     </div>
 
-    <div class="container">
+    <main class="container">
         <p class="description">Scanne QR-Codes und erstelle Bestellungen</p>
 
         <!-- Scanner -->
@@ -70,7 +74,7 @@
             <h2 class="section-title" id="scanner-title">📷 QR-Code scannen</h2>
 
             <div class="camera-permission">
-                <p>Kamera-Zugriff erlauben, dann „Jetzt scannen“ tippen.</p>
+                <p>Kamera erlauben und „Jetzt scannen“ tippen.</p>
             </div>
 
             <div id="scanner-container" class="hidden">
@@ -118,9 +122,8 @@
             <h2 class="section-title" id="shipping-title">📧 Bestellung senden</h2>
 
             <div class="form-group">
-                <label for="custom-message">Nachricht (optional, wird **nicht** automatisch in die Mail
-                    übernommen):</label>
-                <textarea id="custom-message" placeholder="Zusätzliche Infos..."></textarea>
+                <label for="custom-message">Notiz (optional, wird nicht automatisch verschickt):</label>
+                <textarea id="custom-message" placeholder="Zusätzliche Infos nur für dich …"></textarea>
             </div>
 
             <div id="email-preview-container" class="hidden">
@@ -141,10 +144,10 @@
 
             <div id="email-status" aria-live="polite"></div>
             <div id="sending-progress" class="hidden">
-                <div class="status-message info">E-Mail wird gesendet...</div>
+                <div class="status-message info">E-Mail wird gesendet …</div>
             </div>
         </section>
-    </div>
+    </main>
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>

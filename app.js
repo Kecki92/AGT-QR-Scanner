@@ -3,7 +3,11 @@ const CONFIG = {
     fromEmail: 'lager9611@gmail.com',
     fromName: 'QR-Code Scanner System',
     subject: 'Neue Bestellung via QR-Scanner',
-    storageKeys: { orders: 'qrScannerOrders', settings: 'qrScannerSettings', cameraAllowed: 'qrScannerCameraAllowed' }
+    storageKeys: {
+        orders: 'qrScannerOrders',
+        settings: 'qrScannerSettings',
+        cameraAllowed: 'qrScannerCameraAllowed'
+    }
 };
 
 /* ====== STATE & DOM ====== */
@@ -44,11 +48,12 @@ const el = {
     emailjsPublic: $('emailjs-public'),
     toEmail: $('to-email'),
     greeting: $('greeting'),
+    signature: $('signature'),
     testEmailjs: $('test-emailjs'),
     saveSettings: $('save-settings')
 };
 
-/* ====== UTIL ====== */
+/* ====== UTILS ====== */
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 const Status = {
     show(msg, type = 'info', t = 3000) { if (!el.emailStatus) return; el.emailStatus.innerHTML = `<div class="status-message ${type}">${msg}</div>`; if (type === 'success' && t > 0) { setTimeout(() => { el.emailStatus.innerHTML = ''; }, t); } },
@@ -60,7 +65,8 @@ const Storage = {
     saveOrders() { try { localStorage.setItem(CONFIG.storageKeys.orders, JSON.stringify(orders)); } catch { } },
     loadOrders() {
         try {
-            const r = localStorage.getItem(CONFIG.storageKeys.orders); if (!r) return []; const p = JSON.parse(r);
+            const raw = localStorage.getItem(CONFIG.storageKeys.orders); if (!raw) return [];
+            const p = JSON.parse(raw);
             return Array.isArray(p) ? p.map(o => ({ artikel: String(o.artikel || 'Unbekannter Artikel'), menge: Math.max(1, parseInt(o.menge || 1, 10)), beschreibung: '', id: o.id || Date.now() + Math.random().toString(36).slice(2) })) : [];
         } catch { return []; }
     },
@@ -108,7 +114,7 @@ const Order = {
 };
 window.Order = Order;
 
-/* ====== SCANNER: Einzel-Scan ====== */
+/* ====== SCANNER (Einzel-Scan) ====== */
 const Scanner = {
     async ensureCamera() {
         if (location.protocol !== 'https:' && location.hostname !== 'localhost') { Status.scan('❌ Kamera-Zugriff erfordert HTTPS oder localhost.', 'error'); return false; }
@@ -119,12 +125,8 @@ const Scanner = {
                 Status.scan('📷 Kamera wird gestartet...', 'info');
                 videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
                 el.qrVideo.srcObject = videoStream;
-                await new Promise((res, rej) => {
-                    const ready = () => { el.qrVideo.play().then(res).catch(rej); el.qrVideo.removeEventListener('loadedmetadata', ready); };
-                    el.qrVideo.addEventListener('loadedmetadata', ready); if (el.qrVideo.readyState >= 1) ready();
-                });
-                el.scannerContainer.classList.remove('hidden');
-                Storage.setCameraAllowed(true);
+                await new Promise((res, rej) => { const ready = () => { el.qrVideo.play().then(res).catch(rej); el.qrVideo.removeEventListener('loadedmetadata', ready); }; el.qrVideo.addEventListener('loadedmetadata', ready); if (el.qrVideo.readyState >= 1) ready(); });
+                el.scannerContainer.classList.remove('hidden'); Storage.setCameraAllowed(true);
                 Status.scan('✅ Kamera bereit – „Jetzt scannen“ drücken', 'success');
             }
             return true;
@@ -138,8 +140,7 @@ const Scanner = {
         try {
             const img = ctx.getImageData(0, 0, c.width, c.height);
             const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-            if (code && code.data) this.handle(code.data);
-            else Status.scan('❌ Kein QR-Code im Bild gefunden', 'error');
+            if (code && code.data) this.handle(code.data); else Status.scan('❌ Kein QR-Code im Bild gefunden', 'error');
         } catch (err) { Status.scan(`❌ ${err?.message || err}`, 'error'); }
     },
     async scanImageFile(file) {
@@ -157,18 +158,14 @@ const Scanner = {
     handle(data) {
         if (!data || !String(data).trim()) { Status.scan('❌ Ungültiger QR-Code', 'error'); return; }
         try {
-            const p = this.parse(data);
-            Order.add(p.artikel, p.menge);
-            Status.scan('🎉 QR-Code erfolgreich gescannt!', 'success');
+            const p = this.parse(data); Order.add(p.artikel, p.menge); Status.scan('🎉 QR-Code erfolgreich gescannt!', 'success');
         } catch { Status.scan('❌ Fehler beim Verarbeiten des QR-Codes', 'error'); }
     },
     parse(data) {
         try {
             const o = JSON.parse(data);
             return { artikel: o.artikel || o.name || o.title || o.product || 'Unbekannter Artikel', menge: Math.max(1, Number(o.menge || o.quantity || o.amount || 1)) };
-        } catch {
-            return this.parseText(String(data));
-        }
+        } catch { return this.parseText(String(data)); }
     },
     parseText(text) {
         const clean = text.trim(); const lines = clean.split('\n').filter(l => l.trim());
@@ -179,8 +176,7 @@ const Scanner = {
                 const line = raw.trim();
                 if (/^(ALU|GLAS)$/i.test(line)) continue;
                 if (/Bestellmenge:/i.test(line)) continue;
-                const m = line.match(/(\d+)\s*(STK|Stk|Stück|Stck|PCS)/i);
-                if (m) { menge = parseInt(m[1], 10); continue; }
+                const m = line.match(/(\d+)\s*(STK|Stk|Stück|Stck|PCS)/i); if (m) { menge = parseInt(m[1], 10); continue; }
                 if (line && !/^\d/.test(line)) parts.push(line);
             }
             artikel = parts.join(' ').trim() || artikel;
@@ -208,46 +204,40 @@ const Email = {
     initialize() {
         try {
             const s = Settings.get();
-            if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic || !s.toEmail)
-                throw new Error('Bitte alle E-Mail Felder ausfüllen.');
+            if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic || !s.toEmail) throw new Error('Bitte alle E-Mail Felder ausfüllen.');
             if (typeof emailjs === 'undefined') throw new Error('EmailJS SDK konnte nicht geladen werden');
             if (!emailjsInitialized) { emailjs.init(s.emailjsPublic); emailjsInitialized = true; }
             return true;
         } catch (e) { Status.show(e.message, 'error'); return false; }
     },
 
-    // ---- Neue, schönere E-Mail-Struktur ----
+    // Anrede → „Hiermit bestelle ich …“ → nummerierte, fette Liste → Signatur
     buildContent() {
         if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
         const s = Settings.get();
         const greet = (s.greeting || '').trim();
         const sign = (s.signature || '').trim();
 
-        // Klartext-Version
+        // TEXT
         let text = '';
         if (greet) text += greet + '\n\n';
         text += 'Hiermit bestelle ich folgende Artikel:\n\n';
-        orders.forEach((o, i) => {
-            text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`;
-        });
+        orders.forEach((o, i) => { text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`; });
         if (sign) text += `\nMit freundlichen Grüßen,\n${sign}\n`;
 
-        // HTML-Version für Vorschau
+        // HTML (für Vorschau & ggf. Template)
         const htmlItems = orders.map((o, i) => `
       <div class="item">
         <strong class="item-title">${i + 1}. ${esc(o.artikel)}</strong>
         <span class="qty">${o.menge}x</span>
-      </div>
-    `).join('');
+      </div>`).join('');
         const html = `
       <div class="mail">
         ${greet ? `<div class="line">${esc(greet)}</div>` : ''}
         <div class="line">Hiermit bestelle ich folgende Artikel:</div>
-        <div style="margin:.6rem 0 0 0"></div>
         ${htmlItems}
-        ${sign ? `<div style="margin-top:1.2rem"><br>Mit freundlichen Grüßen,<br><strong>${esc(sign)}</strong></div>` : ''}
-      </div>
-    `;
+        ${sign ? `<div style="margin-top:1rem"><br>Mit freundlichen Grüßen,<br><strong>${esc(sign)}</strong></div>` : ''}
+      </div>`;
 
         return { text, html, to: s.toEmail };
     },
@@ -265,13 +255,12 @@ const Email = {
         if (!orders.length) { Status.show('❌ Keine Bestellungen zum Senden', 'error'); return; }
         if (!this.initialize()) return;
 
-        Status.show('📤 E-Mail wird gesendet...', 'info');
+        Status.show('📤 E-Mail wird gesendet …', 'info');
         el.sendingProgress.classList.remove('hidden');
 
         try {
             const { text, html, to } = this.buildContent();
-
-            const result = await emailjs.send(
+            const r = await emailjs.send(
                 el.emailjsService.value.trim(),
                 el.emailjsTemplate.value.trim(),
                 {
@@ -279,38 +268,34 @@ const Email = {
                     from_name: CONFIG.fromName,
                     from_email: CONFIG.fromEmail,
                     subject: CONFIG.subject,
-                    message: text,               // Textversion
+                    message: text,           // Text
                     message_text: text,
-                    message_html: html,          // HTML-Version mit fetten Artikeln
+                    message_html: html,      // HTML für hübsche Darstellung
                     order_count: String(orders.length),
                     total_quantity: String(orders.reduce((s, o) => s + o.menge, 0)),
                     timestamp: new Date().toLocaleString('de-DE'),
-                    greeting: el.greeting.value.trim()
+                    greeting: el.greeting.value.trim(),
+                    signature: el.signature.value.trim()
                 }
             );
 
-            if (result.status === 200) {
+            if (r.status === 200) {
                 Status.show('✅ E-Mail wurde erfolgreich gesendet!', 'success');
                 orders = []; Order.render(); Storage.saveOrders();
                 el.customMessage.value = ''; el.emailPreviewContainer.classList.add('hidden');
-            } else {
-                throw new Error(`Server antwortete mit Status: ${result.status}`);
-            }
+            } else { throw new Error(`Server antwortete mit Status: ${r.status}`); }
         } catch (e) { Status.show('❌ ' + (e?.text || e?.message || 'Fehler beim Senden'), 'error'); }
         finally { el.sendingProgress.classList.add('hidden'); }
     },
 
     async copy() {
-        try {
-            const { text } = this.buildContent();
-            await navigator.clipboard.writeText(text);
-            Status.show('📋 Inhalt wurde in die Zwischenablage kopiert!', 'success');
-        } catch { Status.show('❌ Kopieren fehlgeschlagen', 'error'); }
+        try { const { text } = this.buildContent(); await navigator.clipboard.writeText(text); Status.show('📋 Inhalt kopiert!', 'success'); }
+        catch { Status.show('❌ Kopieren fehlgeschlagen', 'error'); }
     },
 
     async testConnection() {
         if (!this.initialize()) return;
-        Status.show('🔧 Teste EmailJS Verbindung...', 'info');
+        Status.show('🔧 Teste EmailJS Verbindung …', 'info');
         try {
             const r = await emailjs.send(
                 el.emailjsService.value.trim(),
@@ -332,7 +317,8 @@ const Settings = {
             emailjsTemplate: el.emailjsTemplate.value.trim(),
             emailjsPublic: el.emailjsPublic.value.trim(),
             toEmail: el.toEmail.value.trim(),
-            greeting: el.greeting.value.trim()
+            greeting: el.greeting.value.trim(),
+            signature: el.signature.value.trim()
         };
     },
     load() {
@@ -342,15 +328,14 @@ const Settings = {
         if (s.emailjsTemplate) el.emailjsTemplate.value = s.emailjsTemplate;
         if (s.emailjsPublic) el.emailjsPublic.value = s.emailjsPublic;
         if (s.greeting) el.greeting.value = s.greeting;
+        if (s.signature) el.signature.value = s.signature;
     },
     save() {
         const s = this.get();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.toEmail)) { Status.show('❌ Bitte gültige Empfänger-E-Mail eingeben', 'error'); return; }
-        if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic) { Status.show('❌ Bitte alle EmailJS Felder ausfüllen', 'error'); return; }
-        Storage.saveSettings(s);
-        Status.show('✅ Einstellungen wurden gespeichert!', 'success');
-        emailjsInitialized = false;
-        setTimeout(() => Settings.close(), 500);
+        if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic) { Status.show('❌ Bitte alle EmailJS-Felder ausfüllen', 'error'); return; }
+        Storage.saveSettings(s); Status.show('✅ Einstellungen gespeichert', 'success'); emailjsInitialized = false;
+        setTimeout(() => this.close(), 500);
     },
     open() { el.settingsModal.style.display = 'flex'; document.body.style.overflow = 'hidden'; },
     close() { el.settingsModal.style.display = 'none'; document.body.style.overflow = ''; }
