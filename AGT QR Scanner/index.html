@@ -5,15 +5,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Alu Glas Technik - QR Scanner</title>
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./modal.css" />
+    <link rel="stylesheet" href="./styles.css?v=1" />
+    <link rel="stylesheet" href="./modal.css?v=1" />
 </head>
 
 <body>
     <!-- Header -->
     <header class="mobile-header">
         <div class="logo-container">
-            <img src="./logo.png" alt="Firmenlogo" class="company-logo" />
+            <img src="./logo.png" alt="Alu Glas Technik" class="company-logo" />
         </div>
         <button class="menu-toggle" id="menu-toggle" aria-label="Einstellungen öffnen">⚙️</button>
     </header>
@@ -30,41 +30,38 @@
                 <h3 class="section-subtitle">E-Mail Einstellungen</h3>
 
                 <div class="form-group">
-                    <label for="emailjs-service">Service ID</label>
-                    <input id="emailjs-service" type="text" placeholder="service_xxxxx" value="service_8ys1b8k" />
+                    <label for="emailjs-service">Service ID:</label>
+                    <input type="text" id="emailjs-service" placeholder="service_xxxxx" value="service_8ys1b8k">
+                </div>
+                <div class="form-group">
+                    <label for="emailjs-template">Template ID:</label>
+                    <input type="text" id="emailjs-template" placeholder="template_xxxxx" value="template_3t1s9qj">
+                </div>
+                <div class="form-group">
+                    <label for="emailjs-public">Public Key:</label>
+                    <input type="text" id="emailjs-public" placeholder="public_xxxxx" value="Z_1k1jXK8Qk9t8z3N">
                 </div>
 
                 <div class="form-group">
-                    <label for="emailjs-template">Template ID</label>
-                    <input id="emailjs-template" type="text" placeholder="template_xxxxx" value="template_3t1s9qj" />
+                    <label for="to-email">Empfänger E-Mail:</label>
+                    <input type="email" id="to-email" placeholder="empfaenger@example.com"
+                        value="keckeisfabian@outlook.com">
+                </div>
+
+                <h3 class="section-subtitle">Personalisierung</h3>
+                <div class="form-group">
+                    <label for="greeting">Anrede (z. B. „Hallo Wolfi, kannst du folgende Artikel bestellen,“):</label>
+                    <input type="text" id="greeting" placeholder="Anrede für den Empfänger">
                 </div>
 
                 <div class="form-group">
-                    <label for="emailjs-public">Public Key</label>
-                    <input id="emailjs-public" type="text" placeholder="public_xxxxx" value="Z_1k1jXK8Qk9t8z3N" />
+                    <label for="sender-name">Absendername (wer bestellt):</label>
+                    <input type="text" id="sender-name" placeholder="Max Mustermann">
                 </div>
 
                 <div class="form-group">
-                    <label for="to-email">Empfänger E-Mail</label>
-                    <input id="to-email" type="email" placeholder="empfaenger@example.com"
-                        value="keckeisfabian@outlook.com" />
-                </div>
-
-                <h3 class="section-subtitle" style="margin-top:1rem;">Absender & Anrede</h3>
-
-                <div class="form-group">
-                    <label for="greeting">Anrede (z. B. „Hallo Wolfi,“)</label>
-                    <input id="greeting" type="text" placeholder="Hallo …," />
-                </div>
-
-                <div class="form-group">
-                    <label for="sender-name">Absender-Name (wer bestellt)</label>
-                    <input id="sender-name" type="text" placeholder="Max Mustermann" />
-                </div>
-
-                <div class="form-group">
-                    <label for="signature">Signatur (z. B. Abteilung, Tel., E-Mail)</label>
-                    <textarea id="signature" placeholder="Firma | Tel. | E-Mail"></textarea>
+                    <label for="signature">Signatur (optional):</label>
+                    <textarea id="signature" placeholder="Signaturzeile(n)"></textarea>
                 </div>
 
                 <div class="button-row">
@@ -75,7 +72,7 @@
         </div>
     </div>
 
-    <main class="container">
+    <div class="container">
         <p class="description">Scanne QR-Codes und erstelle Bestellungen</p>
 
         <!-- Scanner -->
@@ -96,8 +93,7 @@
 
             <div class="scanner-controls">
                 <div class="button-row">
-                    <button id="scan-now" class="btn btn-primary">Jetzt scannen</button>
-
+                    <button id="scan-now" class="btn btn-info">Jetzt scannen</button>
                     <label class="btn btn-warning" for="upload-image">Foto/Upload</label>
                     <input id="upload-image" type="file" accept="image/*" capture="environment" class="sr-only" />
                 </div>
@@ -111,11 +107,11 @@
 
             <div class="order-summary">
                 <div class="summary-item">
-                    <span class="summary-label">Artikel</span>
+                    <span class="summary-label">Artikel:</span>
                     <span id="total-articles" class="summary-value">0</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">Gesamt</span>
+                    <span class="summary-label">Gesamt:</span>
                     <span id="total-quantity" class="summary-value">0</span>
                 </div>
             </div>
@@ -132,7 +128,7 @@
             <h2 class="section-title" id="shipping-title">📧 Bestellung senden</h2>
 
             <div class="form-group">
-                <label for="custom-message">Nachricht (optional)</label>
+                <label for="custom-message">Nachricht (optional):</label>
                 <textarea id="custom-message" placeholder="Zusätzliche Informationen..."></textarea>
             </div>
 
@@ -158,12 +154,11 @@
                 <div class="status-message info">E-Mail wird gesendet...</div>
             </div>
         </section>
-    </main>
+    </div>
 
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-    <script src="./app.js"></script>
+    <script src="./app.js?v=1"></script>
 </body>
 
 </html>
