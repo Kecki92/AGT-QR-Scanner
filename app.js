@@ -211,44 +211,39 @@ const Email = {
         } catch (e) { Status.show(e.message, 'error'); return false; }
     },
 
-    // Anrede → „Hiermit bestelle ich …“ → nummerierte, fette Liste → Signatur
+    // *** GENAU DEIN WUNSCHFORMAT ***
     buildContent() {
         if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
         const s = Settings.get();
         const greet = (s.greeting || '').trim();
         const sign = (s.signature || '').trim();
 
-        // TEXT
+        // TEXT-Version
         let text = '';
         if (greet) text += greet + '\n\n';
-        text += 'Hiermit bestelle ich folgende Artikel:\n\n';
-        orders.forEach((o, i) => { text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`; });
-        if (sign) text += `\nMit freundlichen Grüßen,\n${sign}\n`;
+        orders.forEach((o, i) => { text += `${i + 1}. ${o.artikel} – ${o.menge}\n`; });
+        text += `\nZusammenfassung:\n\t- Gesamtanzahl der Artikel: ${orders.length}\n`;
+        if (sign) text += `\n${sign}\n`;
 
-        // HTML (für Vorschau & ggf. Template)
-        const htmlItems = orders.map((o, i) => `
-      <div class="item">
-        <strong class="item-title">${i + 1}. ${esc(o.artikel)}</strong>
-        <span class="qty">${o.menge}x</span>
-      </div>`).join('');
+        // HTML-Version für Vorschau
+        const htmlItems = orders.map((o, i) => `<div class="item"><strong>${i + 1}. ${esc(o.artikel)} – ${o.menge}</strong></div>`).join('');
         const html = `
       <div class="mail">
         ${greet ? `<div class="line">${esc(greet)}</div>` : ''}
-        <div class="line">Hiermit bestelle ich folgende Artikel:</div>
         ${htmlItems}
-        ${sign ? `<div style="margin-top:1rem"><br>Mit freundlichen Grüßen,<br><strong>${esc(sign)}</strong></div>` : ''}
+        <div class="line" style="margin-top:.8rem">
+          <strong>Zusammenfassung:</strong><br>
+          &nbsp;&nbsp;- Gesamtanzahl der Artikel: ${orders.length}
+        </div>
+        ${sign ? `<div class="line"><strong>${esc(sign)}</strong></div>` : ''}
       </div>`;
 
         return { text, html, to: s.toEmail };
     },
 
     showPreview() {
-        try {
-            const { html } = this.buildContent();
-            el.emailPreview.innerHTML = html;
-            el.emailPreviewContainer.classList.remove('hidden');
-            Status.show('📧 E-Mail Vorschau wurde generiert', 'success');
-        } catch (e) { Status.show(e.message, 'error'); }
+        try { const { html } = this.buildContent(); el.emailPreview.innerHTML = html; el.emailPreviewContainer.classList.remove('hidden'); Status.show('📧 E-Mail Vorschau wurde generiert', 'success'); }
+        catch (e) { Status.show(e.message, 'error'); }
     },
 
     async send() {
@@ -270,7 +265,7 @@ const Email = {
                     subject: CONFIG.subject,
                     message: text,           // Text
                     message_text: text,
-                    message_html: html,      // HTML für hübsche Darstellung
+                    message_html: html,      // HTML
                     order_count: String(orders.length),
                     total_quantity: String(orders.reduce((s, o) => s + o.menge, 0)),
                     timestamp: new Date().toLocaleString('de-DE'),
@@ -401,7 +396,6 @@ class App {
             Settings.load();
             Events.bind();
 
-            // Kamera vorwärmen, falls schon einmal erlaubt
             if (Storage.getCameraAllowed()) { Scanner.ensureCamera().catch(() => { }); }
 
             Status.show('✅ App ist bereit', 'success', 1500);
