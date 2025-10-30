@@ -208,32 +208,44 @@ const Email = {
     initialize() {
         try {
             const s = Settings.get();
-            if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic || !s.toEmail) throw new Error('Bitte alle E-Mail Felder ausfüllen.');
+            if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic || !s.toEmail)
+                throw new Error('Bitte alle E-Mail Felder ausfüllen.');
             if (typeof emailjs === 'undefined') throw new Error('EmailJS SDK konnte nicht geladen werden');
             if (!emailjsInitialized) { emailjs.init(s.emailjsPublic); emailjsInitialized = true; }
             return true;
         } catch (e) { Status.show(e.message, 'error'); return false; }
     },
 
-    // >>> Nur Anrede + fette Artikelliste (ohne Beschreibungen/ohne Zusammenfassung)
+    // ---- Neue, schönere E-Mail-Struktur ----
     buildContent() {
         if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
         const s = Settings.get();
         const greet = (s.greeting || '').trim();
+        const sign = (s.signature || '').trim();
 
-        // Klartext (für Copy & ggf. Template-Text)
+        // Klartext-Version
         let text = '';
-        if (greet) text += `${greet}\n\n`;
-        orders.forEach((o, i) => { text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`; });
+        if (greet) text += greet + '\n\n';
+        text += 'Hiermit bestelle ich folgende Artikel:\n\n';
+        orders.forEach((o, i) => {
+            text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`;
+        });
+        if (sign) text += `\nMit freundlichen Grüßen,\n${sign}\n`;
 
-        // HTML (für Vorschau + Template-HTML)
-        const htmlItems = orders.map(o => `
-      <div class="item"><strong class="item-title">${esc(o.artikel)}</strong> <span class="qty">${o.menge}x</span></div>
+        // HTML-Version für Vorschau
+        const htmlItems = orders.map((o, i) => `
+      <div class="item">
+        <strong class="item-title">${i + 1}. ${esc(o.artikel)}</strong>
+        <span class="qty">${o.menge}x</span>
+      </div>
     `).join('');
         const html = `
       <div class="mail">
-        ${greet ? `<div class="line">${esc(greet)}</div>` : ``}
+        ${greet ? `<div class="line">${esc(greet)}</div>` : ''}
+        <div class="line">Hiermit bestelle ich folgende Artikel:</div>
+        <div style="margin:.6rem 0 0 0"></div>
         ${htmlItems}
+        ${sign ? `<div style="margin-top:1.2rem"><br>Mit freundlichen Grüßen,<br><strong>${esc(sign)}</strong></div>` : ''}
       </div>
     `;
 
@@ -243,7 +255,7 @@ const Email = {
     showPreview() {
         try {
             const { html } = this.buildContent();
-            el.emailPreview.innerHTML = html;     // << HTML, damit Artikel fett sind
+            el.emailPreview.innerHTML = html;
             el.emailPreviewContainer.classList.remove('hidden');
             Status.show('📧 E-Mail Vorschau wurde generiert', 'success');
         } catch (e) { Status.show(e.message, 'error'); }
