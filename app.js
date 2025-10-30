@@ -1,790 +1,438 @@
-/* ====== APP KONFIGURATION ====== */
+/* ========= KONFIG ========= */
 const CONFIG = {
-    fromEmail: 'lager9611@gmail.com',   // Fallback, falls kein Absender hinterlegt
-    fromName: 'QR-Code Scanner System', // Fallback
+    fromEmail: 'lager9611@gmail.com',
+    fromName: 'QR-Code Scanner System',
     subject: 'Neue Bestellung via QR-Scanner',
-    scanner: {
-        autoScan: false,        // Einzel-Scan nur auf Button
-        pauseAfterScan: 1200
-    },
-    storageKeys: {
-        orders: 'qrScannerOrders',
-        cameraAllowed: 'qrScannerCameraAllowed',
-        settings: 'qrScannerSettings'
-    },
-    defaults: {
-        salutation: 'Sehr geehrte Damen und Herren,'
-    }
+    storageKeys: { orders: 'qrScannerOrders', cameraAllowed: 'qrScannerCameraAllowed', settings: 'qrScannerSettings' }
 };
 
-/* ====== GLOBALE VARIABLEN ====== */
+/* ========= STATE & DOM ========= */
 let orders = [];
 let videoStream = null;
 let emailjsInitialized = false;
 
-/* ====== ELEMENTE CACHING ====== */
-const elements = {
-    // Scanner
-    scannerContainer: document.getElementById('scanner-container'),
-    qrVideo: document.getElementById('qr-video'),
-    qrCanvas: document.getElementById('qr-canvas'),
-    scanNow: document.getElementById('scan-now'),
-    uploadImage: document.getElementById('upload-image'),
-    scannerStatus: document.getElementById('scanner-status'),
+const $ = (id) => document.getElementById(id);
+const el = {
+    scannerContainer: $('scanner-container'),
+    qrVideo: $('qr-video'),
+    qrCanvas: $('qr-canvas'),
+    uploadImage: $('upload-image'),
+    scanNow: $('scan-now'),
+    scannerStatus: $('scanner-status'),
 
-    // Orders
-    orderList: document.getElementById('order-list'),
-    totalArticles: document.getElementById('total-articles'),
-    totalQuantity: document.getElementById('total-quantity'),
-    clearOrders: document.getElementById('clear-orders'),
+    orderList: $('order-list'),
+    totalArticles: $('total-articles'),
+    totalQuantity: $('total-quantity'),
+    clearOrders: $('clear-orders'),
 
-    // Mail compose
-    customMessage: document.getElementById('custom-message'),
-    emailPreview: document.getElementById('email-preview'),
-    emailPreviewContainer: document.getElementById('email-preview-container'),
-    closePreview: document.getElementById('close-preview'),
-    previewEmail: document.getElementById('preview-email'),
-    sendOrder: document.getElementById('send-order'),
-    copyToClipboard: document.getElementById('copy-to-clipboard'),
-    emailStatus: document.getElementById('email-status'),
-    sendingProgress: document.getElementById('sending-progress'),
+    customMessage: $('custom-message'),
+    emailPreview: $('email-preview'),
+    emailPreviewContainer: $('email-preview-container'),
+    closePreview: $('close-preview'),
+    previewEmail: $('preview-email'),
+    sendOrder: $('send-order'),
+    copyToClipboard: $('copy-to-clipboard'),
+    emailStatus: $('email-status'),
+    sendingProgress: $('sending-progress'),
 
-    // Settings modal
-    settingsModal: document.getElementById('settings-modal'),
-    menuToggle: document.getElementById('menu-toggle'),
-    closeModal: document.getElementById('close-modal'),
-    emailjsService: document.getElementById('emailjs-service'),
-    emailjsTemplate: document.getElementById('emailjs-template'),
-    emailjsPublic: document.getElementById('emailjs-public'),
-    toEmail: document.getElementById('to-email'),
-
-    // NEW personalization
-    emailSalutation: document.getElementById('email-salutation'),
-    senderName: document.getElementById('sender-name'),
-    senderEmail: document.getElementById('sender-email'),
-
-    testEmailjs: document.getElementById('test-emailjs'),
-    saveSettings: document.getElementById('save-settings')
+    settingsModal: $('settings-modal'),
+    menuToggle: $('menu-toggle'),
+    closeModal: $('close-modal'),
+    emailjsService: $('emailjs-service'),
+    emailjsTemplate: $('emailjs-template'),
+    emailjsPublic: $('emailjs-public'),
+    toEmail: $('to-email'),
+    greeting: $('greeting'),
+    senderName: $('sender-name'),   // weiter vorhanden, wird aber in der Mail nicht mehr genutzt
+    signature: $('signature'),      // weiter vorhanden, wird aber in der Mail nicht mehr genutzt
+    testEmailjs: $('test-emailjs'),
+    saveSettings: $('save-settings')
 };
 
-/* ====== UTIL ====== */
-function validateElements() {
-    const missing = [];
-    for (const [k, el] of Object.entries(elements)) if (!el) missing.push(k);
-    if (missing.length) console.warn('⚠️ Fehlende HTML-Elemente:', missing.join(', '));
-}
-const Clamp = (v, min, max) => Math.min(max, Math.max(min, v | 0));
+/* ========= UTIL ========= */
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+const Status = {
+    show(msg, type = 'info', t = 3000) { if (!el.emailStatus) return; el.emailStatus.innerHTML = `<div class="status-message ${type}">${msg}</div>`; if (type === 'success' && t > 0) { setTimeout(() => { el.emailStatus.innerHTML = ''; }, t); } },
+    scan(msg, type = 'info') { el.scannerStatus.className = `status-message ${type}`; el.scannerStatus.textContent = msg; }
+};
 
-/* ====== STATUS ====== */
-class StatusManager {
-    static showStatus(message, type = 'info', duration = 3000) {
-        const el = elements.emailStatus; if (!el) return;
-        el.innerHTML = `<div class="status-message ${type}">${message}</div>`;
-        if (type === 'success' && duration > 0) {
-            setTimeout(() => { if (el.innerHTML.includes(message)) el.innerHTML = ''; }, duration);
-        }
-    }
-    static showScannerStatus(message, type = 'info') {
-        const el = elements.scannerStatus; if (!el) return;
-        el.className = `status-message ${type}`;
-        el.textContent = message;
-    }
-    static showLoading(button, show = true) {
-        if (!button) return;
-        if (show) {
-            button.disabled = true;
-            const originalText = button.textContent;
-            button.dataset.originalText = originalText;
-            button.innerHTML = `<span class="loading-spinner"></span> ${originalText}`;
-        } else {
-            button.disabled = false;
-            const originalText = button.dataset.originalText || button.textContent;
-            button.textContent = originalText;
-        }
-    }
-}
-
-/* ====== STORAGE ====== */
-class OrderStorage {
-    static saveOrders() {
-        try { localStorage.setItem(CONFIG.storageKeys.orders, JSON.stringify(orders)); }
-        catch (e) { console.warn('⚠️ Konnte Bestellungen nicht speichern:', e); }
-    }
-    static loadOrders() {
+/* ========= STORAGE ========= */
+const Storage = {
+    saveOrders() { try { localStorage.setItem(CONFIG.storageKeys.orders, JSON.stringify(orders)); } catch { } },
+    loadOrders() {
         try {
-            const raw = localStorage.getItem(CONFIG.storageKeys.orders);
-            if (!raw) return [];
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return [];
-            return parsed.map(o => ({
-                artikel: String(o.artikel || 'Unbekannter Artikel'),
-                menge: Math.max(1, parseInt(o.menge || 1, 10)),
-                beschreibung: String(o.beschreibung || ''),
-                id: o.id || Date.now() + Math.random().toString(36).slice(2)
-            }));
-        } catch (e) { console.warn('⚠️ Konnte Bestellungen nicht laden:', e); return []; }
-    }
-    static setCameraAllowed(v = true) { try { localStorage.setItem(CONFIG.storageKeys.cameraAllowed, v ? '1' : '0'); } catch { } }
-    static getCameraAllowed() { try { return localStorage.getItem(CONFIG.storageKeys.cameraAllowed) === '1'; } catch { return false; } }
+            const r = localStorage.getItem(CONFIG.storageKeys.orders); if (!r) return [];
+            const p = JSON.parse(r);
+            return Array.isArray(p) ? p.map(o => ({ artikel: String(o.artikel || 'Unbekannter Artikel'), menge: Math.max(1, parseInt(o.menge || 1, 10)), beschreibung: String(o.beschreibung || ''), id: o.id || Date.now() + Math.random().toString(36).slice(2) })) : [];
+        } catch { return []; }
+    },
+    saveSettings(s) { try { localStorage.setItem(CONFIG.storageKeys.settings, JSON.stringify(s || {})); } catch { } },
+    loadSettings() { try { return JSON.parse(localStorage.getItem(CONFIG.storageKeys.settings) || '{}'); } catch { return {}; } },
+    setCameraAllowed(v = true) { try { localStorage.setItem(CONFIG.storageKeys.cameraAllowed, v ? '1' : '0'); } catch { } },
+    getCameraAllowed() { try { return localStorage.getItem(CONFIG.storageKeys.cameraAllowed) === '1'; } catch { return false; } }
+};
 
-    static loadSettings() {
-        try {
-            const raw = localStorage.getItem(CONFIG.storageKeys.settings);
-            if (!raw) return {};
-            return JSON.parse(raw) || {};
-        } catch { return {}; }
-    }
-    static saveSettings(obj) {
-        try { localStorage.setItem(CONFIG.storageKeys.settings, JSON.stringify(obj)); } catch { }
-    }
-}
-
-/* ====== ORDERS ====== */
-class OrderManager {
-    static addOrder(article, quantity = 1, description = '') {
-        const order = {
-            artikel: article,
-            menge: Math.max(1, quantity),
-            beschreibung: description,
-            id: Date.now() + Math.random().toString(36).substr(2, 9)
-        };
-        const i = orders.findIndex(o => o.artikel === order.artikel && o.beschreibung === order.beschreibung);
-        if (i >= 0) {
-            orders[i].menge += order.menge;
-            StatusManager.showScannerStatus(`📦 Menge erhöht: ${order.artikel}`, 'success');
-        } else {
-            orders.push(order);
-            StatusManager.showScannerStatus(`✅ Erfasst: ${order.artikel}`, 'success');
-        }
-        this.updateOrderList();
-        OrderStorage.saveOrders();
-    }
-
-    static removeOrder(index) {
-        if (index < 0 || index >= orders.length) return;
-        const removed = orders.splice(index, 1)[0];
-        StatusManager.showStatus(`🗑️ Entfernt: ${removed.artikel}`, 'info', 2000);
-        this.updateOrderList();
-        OrderStorage.saveOrders();
-    }
-
-    static setQuantity(index, value) {
-        if (index < 0 || index >= orders.length) return;
-        let v = parseInt(String(value).replace(/[^\d]/g, ''), 10);
-        v = Clamp(isNaN(v) ? 1 : v, 1, 100000);
-        orders[index].menge = v;
-        this.updateOrderList();
-        OrderStorage.saveOrders();
-    }
-
-    static clearOrders() {
-        if (!orders.length) return;
-        orders = [];
-        this.updateOrderList();
-        OrderStorage.saveOrders();
-        StatusManager.showStatus('🗑️ Alle Bestellungen wurden gelöscht', 'info', 2000);
-    }
-
-    static updateOrderList() {
-        if (!elements.orderList) return;
-        elements.totalArticles.textContent = String(orders.length);
-        elements.totalQuantity.textContent = String(orders.reduce((s, o) => s + o.menge, 0));
-
-        if (!orders.length) {
-            elements.orderList.innerHTML = '<div class="status-message info">📭 Noch keine Artikel gescannt</div>';
-            return;
-        }
-
-        elements.orderList.innerHTML = orders.map((order, index) => `
+/* ========= ORDERS ========= */
+const Order = {
+    add(article, qty = 1, desc = '') {
+        const i = orders.findIndex(o => o.artikel === article && o.beschreibung === desc);
+        if (i >= 0) orders[i].menge += Math.max(1, qty);
+        else orders.push({ artikel: article, menge: Math.max(1, qty), beschreibung: desc, id: Date.now() + Math.random().toString(36).slice(2) });
+        this.render(); Storage.saveOrders(); Status.scan(`✅ Erfasst: ${article}`, 'success');
+    },
+    remove(i) { if (i >= 0 && i < orders.length) { orders.splice(i, 1); this.render(); Storage.saveOrders(); } },
+    setQty(i, v) {
+        if (i < 0 || i >= orders.length) return;
+        let x = parseInt(String(v).replace(/[^\d]/g, ''), 10);
+        if (Number.isNaN(x) || x < 1) x = 1; if (x > 100000) x = 100000;
+        orders[i].menge = x; this.render(); Storage.saveOrders();
+    },
+    clear() { orders = []; this.render(); Storage.saveOrders(); Status.show('🗑️ Alle Bestellungen wurden gelöscht', 'info', 2000); },
+    render() {
+        el.totalArticles.textContent = orders.length;
+        el.totalQuantity.textContent = orders.reduce((s, o) => s + o.menge, 0);
+        if (!orders.length) { el.orderList.innerHTML = '<div class="status-message info">📭 Noch keine Artikel gescannt</div>'; return; }
+        el.orderList.innerHTML = orders.map((o, i) => `
       <div class="order-item">
         <div class="order-item-header">
-          <div class="order-item-title">${this.escapeHtml(order.artikel)}</div>
-          <div class="order-item-quantity">${order.menge}x</div>
+          <div class="order-item-title">${esc(o.artikel)}</div>
+          <div class="order-item-quantity">${o.menge}x</div>
         </div>
-        ${order.beschreibung ? `<div class="order-item-details">${this.escapeHtml(order.beschreibung)}</div>` : ''}
+        <!-- Beschreibung absichtlich entfernt -->
         <div class="quantity-controls">
-          <label for="qty-${index}" class="sr-only">Menge</label>
+          <label class="sr-only" for="qty-${i}">Menge</label>
           <span>Menge:</span>
-          <input
-            id="qty-${index}"
-            class="qty-input"
-            type="number"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            min="1"
-            step="1"
-            value="${order.menge}"
-            data-index="${index}"
-            aria-label="Menge für ${this.escapeHtml(order.artikel)}"
-          />
-          <button class="btn btn-danger quantity-btn" onclick="OrderManager.removeOrder(${index})">🗑️</button>
+          <input id="qty-${i}" class="qty-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" value="${o.menge}" data-index="${i}" aria-label="Menge für ${esc(o.artikel)}"/>
+          <button class="btn btn-danger quantity-btn" onclick="Order.remove(${i})">🗑️</button>
         </div>
       </div>
     `).join('');
     }
+};
+window.Order = Order;
 
-    static escapeHtml(unsafe) {
-        return String(unsafe)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
-}
+/* ========= SCANNER (Einzel-Scan) ========= */
+const Scanner = {
+    async ensureCamera() {
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') { Status.scan('❌ Kamera-Zugriff erfordert HTTPS oder localhost.', 'error'); return false; }
+        if (typeof jsQR === 'undefined') { Status.scan('❌ QR-Bibliothek nicht geladen', 'error'); return false; }
+        if (!navigator.mediaDevices?.getUserMedia) { Status.scan('❌ Kamera wird nicht unterstützt', 'error'); return false; }
 
-/* ====== QR (Einzel-Scan) ====== */
-class QRScanner {
-    static async hasGrantedPermissionHint() {
-        if (OrderStorage.getCameraAllowed()) return true;
         try {
-            if (navigator.permissions?.query) {
-                const p = await navigator.permissions.query({ name: 'camera' });
-                return p.state === 'granted';
+            if (!videoStream) {
+                Status.scan('📷 Kamera wird gestartet...', 'info');
+                videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+                el.qrVideo.srcObject = videoStream;
+                await new Promise((res, rej) => {
+                    const ready = () => { el.qrVideo.play().then(res).catch(rej); el.qrVideo.removeEventListener('loadedmetadata', ready); };
+                    el.qrVideo.addEventListener('loadedmetadata', ready);
+                    if (el.qrVideo.readyState >= 1) ready();
+                });
+                el.scannerContainer.classList.remove('hidden');
+                Storage.setCameraAllowed(true);
+                Status.scan('✅ Kamera bereit – „Jetzt scannen“ drücken', 'success');
             }
-        } catch { }
-        return false;
-    }
-
-    static async startCamera() {
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost')
-            throw new Error('Kamera-Zugriff erfordert HTTPS oder localhost.');
-        if (!navigator.mediaDevices?.getUserMedia) {
-            StatusManager.showScannerStatus('❌ Kamera wird nicht unterstützt', 'error');
-            return false;
-        }
-        if (typeof jsQR === 'undefined') {
-            StatusManager.showScannerStatus('❌ QR-Scanner Bibliothek nicht geladen', 'error');
-            return false;
-        }
-
-        try {
-            StatusManager.showScannerStatus('📷 Kamera wird gestartet...', 'info');
-
-            videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false
-            });
-
-            const video = elements.qrVideo;
-            video.srcObject = videoStream;
-
-            await new Promise((resolve, reject) => {
-                const onReady = () => { video.play().then(resolve).catch(reject); video.removeEventListener('loadedmetadata', onReady); };
-                video.addEventListener('loadedmetadata', onReady);
-                if (video.readyState >= 1) onReady();
-            });
-
-            elements.scannerContainer?.classList.remove('hidden');
-            elements.scanNow.disabled = false;
-
-            OrderStorage.setCameraAllowed(true);
-
-            StatusManager.showScannerStatus('✅ Kamera bereit – „Jetzt scannen“ startet einen Einzel-Scan', 'success');
             return true;
-        } catch (error) {
-            this.handleCameraError(error);
-            return false;
-        }
-    }
+        } catch (e) { this.handleCameraError(e); return false; }
+    },
 
-    static stopCamera() {
-        if (videoStream) {
-            videoStream.getTracks().forEach(t => t.stop());
-            videoStream = null;
-        }
-        if (elements.qrVideo) elements.qrVideo.srcObject = null;
-        elements.scanNow.disabled = true;
-        elements.scannerContainer?.classList.add('hidden');
-        StatusManager.showScannerStatus('⏸️ Kamera gestoppt', 'info');
-    }
-
-    static singleScan() {
-        if (!videoStream || !elements.qrVideo) {
-            StatusManager.showScannerStatus('❌ Kamera nicht aktiv', 'error');
-            return;
-        }
-
-        const video = elements.qrVideo;
-        if (!video.videoWidth || !video.videoHeight) {
-            StatusManager.showScannerStatus('⏳ Kamera initialisiert noch…', 'info');
-            return;
-        }
+    async singleScan() {
+        const ok = await this.ensureCamera(); if (!ok) return;
+        const v = el.qrVideo; if (!v.videoWidth || !v.videoHeight) { Status.scan('⏳ Kamera initialisiert noch…', 'info'); return; }
+        const c = el.qrCanvas, ctx = c.getContext('2d', { willReadFrequently: true });
+        c.width = v.videoWidth; c.height = v.videoHeight; ctx.drawImage(v, 0, 0, c.width, c.height);
 
         try {
-            const canvas = elements.qrCanvas;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const img = ctx.getImageData(0, 0, c.width, c.height);
             const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+            if (code && code.data) this.handle(code.data);
+            else Status.scan('❌ Kein QR-Code im Bild gefunden', 'error');
+        } catch (err) { Status.scan(`❌ ${err?.message || err}`, 'error'); }
+    },
 
-            if (code && code.data) {
-                this.handleScannedCode(code.data);
-            } else {
-                StatusManager.showScannerStatus('❌ Kein QR-Code im Bild gefunden', 'error');
-            }
-        } catch (err) {
-            console.error('❌ Single-Scan Fehler:', err);
-            StatusManager.showScannerStatus(`❌ ${err?.message || err}`, 'error');
-        }
-    }
-
-    static async scanImageFile(file) {
+    async scanImageFile(file) {
         if (!file) return;
-        if (typeof jsQR === 'undefined') {
-            StatusManager.showStatus('❌ QR-Scanner Bibliothek nicht geladen', 'error');
-            return;
-        }
-
         try {
-            const url = URL.createObjectURL(file);
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
+            const url = URL.createObjectURL(file); const img = new Image(); img.crossOrigin = 'anonymous';
             await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-
-            const canvas = elements.qrCanvas;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            ctx.drawImage(img, 0, 0);
-
-            const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(data.data, data.width, data.height, { inversionAttempts: 'dontInvert' });
-
+            const c = el.qrCanvas, ctx = c.getContext('2d', { willReadFrequently: true });
+            c.width = img.naturalWidth; c.height = img.naturalHeight; ctx.drawImage(img, 0, 0);
+            const d = ctx.getImageData(0, 0, c.width, c.height);
+            const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'dontInvert' });
             URL.revokeObjectURL(url);
+            if (code && code.data) this.handle(code.data); else Status.show('❌ In diesem Bild wurde kein QR-Code erkannt', 'error');
+        } catch (err) { Status.show(`❌ ${err?.message || err}`, 'error'); }
+    },
 
-            if (code && code.data) {
-                this.handleScannedCode(code.data);
-            } else {
-                StatusManager.showStatus('❌ In diesem Bild wurde kein QR-Code erkannt', 'error');
-            }
-        } catch (err) {
-            console.error('❌ Bild-Scan Fehler:', err);
-            StatusManager.showStatus(`❌ ${err?.message || err}`, 'error');
-        }
-    }
-
-    static handleScannedCode(data) {
-        if (!data || !data.trim()) {
-            StatusManager.showScannerStatus('❌ Ungültiger QR-Code', 'error');
-            return;
-        }
+    handle(data) {
+        if (!data || !String(data).trim()) { Status.scan('❌ Ungültiger QR-Code', 'error'); return; }
         try {
-            const parsed = this.parseQRData(data);
-            OrderManager.addOrder(parsed.artikel, parsed.menge, parsed.beschreibung);
-            StatusManager.showScannerStatus('🎉 QR-Code erfolgreich gescannt!', 'success');
-        } catch (error) {
-            console.error('❌ QR-Code Verarbeitungsfehler:', error);
-            StatusManager.showScannerStatus('❌ Fehler beim Verarbeiten des QR-Codes', 'error');
-        }
-    }
+            const p = this.parse(data);
+            Order.add(p.artikel, p.menge, p.beschreibung);
+            Status.scan('🎉 QR-Code erfolgreich gescannt!', 'success');
+        } catch (e) { Status.scan('❌ Fehler beim Verarbeiten des QR-Codes', 'error'); }
+    },
 
-    static parseQRData(data) {
-        if (!data) return { artikel: 'Ungültiger QR-Code', menge: 1, beschreibung: '' };
+    parse(data) {
         try {
-            const obj = JSON.parse(data);
-            return {
-                artikel: obj.artikel || obj.name || obj.title || obj.product || 'Unbekannter Artikel',
-                menge: Math.max(1, Number(obj.menge || obj.quantity || obj.amount || 1)),
-                beschreibung: obj.beschreibung || obj.description || obj.details || ''
-            };
+            const o = JSON.parse(data);
+            return { artikel: o.artikel || o.name || o.title || o.product || 'Unbekannter Artikel', menge: Math.max(1, Number(o.menge || o.quantity || o.amount || 1)), beschreibung: '' /* Beschreibung wird bewusst ignoriert */ };
         } catch {
-            return this.analyzeTextContent(data);
+            return this.parseText(String(data));
         }
-    }
+    },
 
-    static analyzeTextContent(text) {
-        const cleanText = text.trim();
-        const lines = cleanText.split('\n').filter(l => l.trim());
-        let artikel = 'Unbekannter Artikel';
-        let menge = 1;
-        let beschreibung = '';
-
-        if (lines.length > 0) {
-            const artikelLines = [];
-
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-
-                if (line.match(/^(ALU|GLAS)$/i)) continue;
-                if (line.match(/Bestellmenge:/i)) continue;
-
-                const mengeMatch = line.match(/(\d+)\s*(STK|Stk|Stück|stk|stück|Stck|stck|PCS|pcs)/i);
-                if (mengeMatch) { menge = parseInt(mengeMatch[1]); continue; }
-
-                if (line && !/^\d/.test(line)) artikelLines.push(line);
+    parseText(text) {
+        const clean = text.trim(); const lines = clean.split('\n').filter(l => l.trim());
+        let artikel = 'Unbekannter Artikel', menge = 1;
+        if (lines.length) {
+            const parts = [];
+            for (const raw of lines) {
+                const line = raw.trim();
+                if (/^(ALU|GLAS)$/i.test(line)) continue;
+                if (/Bestellmenge:/i.test(line)) continue;
+                const m = line.match(/(\d+)\s*(STK|Stk|Stück|Stck|PCS)/i);
+                if (m) { menge = parseInt(m[1], 10); continue; }
+                if (line && !/^\d/.test(line)) parts.push(line);
             }
-
-            artikel = artikelLines.join(' ').trim();
-
+            artikel = parts.join(' ').trim() || artikel;
             if (menge === 1) {
-                const nums = cleanText.match(/\b\d+\b/g);
-                if (nums) {
-                    const candidates = nums.map(n => parseInt(n, 10)).filter(n => n > 1 && n < 10000);
-                    if (candidates.length) menge = Math.max(...candidates);
-                }
+                const nums = clean.match(/\b\d+\b/g);
+                if (nums) { const c = nums.map(n => parseInt(n, 10)).filter(n => n > 1 && n < 10000); if (c.length) menge = Math.max(...c); }
             }
-
-            const techDetails = lines.filter(line =>
-                line.match(/ISO\s*\d+/i) ||
-                line.match(/[A-ZÄÖÜ]+[\s-]*\d+[xX]\d+/) ||
-                line.match(/[A-Za-zÄÖÜäöü]+\s*[A-Za-zÄÖÜäöü]*\s*\d+/)
-            );
-            if (techDetails.length) beschreibung = techDetails.join(', ');
         }
+        artikel = artikel.replace(/^ALU\s*-?\s*/i, '').replace(/^GLAS\s*-?\s*/i, '').replace(/\s*Bestellmenge:.*$/i, '').replace(/\s*\d+\s*(STK|Stk|Stück).*$/i, '').trim().substring(0, 100);
+        return { artikel: artikel || 'Unbekannter Artikel', menge: Math.max(1, menge), beschreibung: '' };
+    },
 
-        artikel = this.cleanArticleName(artikel);
-        return { artikel: artikel || 'Unbekannter Artikel', menge: Math.max(1, menge), beschreibung };
+    handleCameraError(e) {
+        let msg = 'Kamera-Fehler.'; const n = e?.name, m = e?.message;
+        if (n === 'NotAllowedError') msg = '❌ Kamera-Zugriff verweigert. Bitte im Browser erlauben.';
+        else if (n === 'NotFoundError') msg = '❌ Keine Kamera gefunden.';
+        else if (n === 'NotReadableError') msg = '❌ Kamera wird bereits verwendet.';
+        else msg = `❌ ${m || 'Unbekannter Fehler'}`;
+        Status.scan(msg, 'error');
     }
+};
+window.Scanner = Scanner;
 
-    static cleanArticleName(name) {
-        if (!name) return 'Unbekannter Artikel';
-        return name
-            .replace(/^ALU\s*-?\s*/gi, '')
-            .replace(/^GLAS\s*-?\s*/gi, '')
-            .replace(/\s*Bestellmenge:.*$/gi, '')
-            .replace(/\s*\d+\s*(STK|Stk|Stück).*$/gi, '')
-            .trim()
-            .substring(0, 100);
-    }
-
-    static handleCameraError(error) {
-        console.error('📹 Kamera-Fehler Details:', error);
-        let errorMessage = 'Kamera-Fehler: ';
-        if (error.name === 'NotAllowedError') errorMessage = '❌ Kamera-Zugriff wurde verweigert. Bitte in den Browser-Einstellungen erlauben.';
-        else if (error.name === 'NotFoundError') errorMessage = '❌ Keine Kamera gefunden.';
-        else if (error.name === 'NotSupportedError') errorMessage = '❌ Kamera wird nicht unterstützt.';
-        else if (error.name === 'NotReadableError') errorMessage = '❌ Kamera wird bereits von einer anderen Anwendung verwendet.';
-        else errorMessage = `❌ Kamera-Fehler: ${error.message || error}`;
-        StatusManager.showScannerStatus(errorMessage, 'error');
-    }
-}
-
-/* ====== EMAIL ====== */
-class EmailManager {
-    static _readSettingsForMail() {
-        // Live aus DOM lesen, damit Änderungen ohne Reload wirken
-        const salutation = (elements.emailSalutation.value || CONFIG.defaults.salutation).trim();
-        const senderName = (elements.senderName.value || '').trim();
-        const senderEmail = (elements.senderEmail.value || '').trim();
-        const fromName = senderName || CONFIG.fromName;
-        const fromEmail = senderEmail || CONFIG.fromEmail;
-        return { salutation, senderName, senderEmail, fromName, fromEmail };
-    }
-
-    static initialize() {
+/* ========= EMAIL ========= */
+const Email = {
+    initialize() {
         try {
-            const serviceId = elements.emailjsService.value.trim();
-            const templateId = elements.emailjsTemplate.value.trim();
-            const publicKey = elements.emailjsPublic.value.trim();
-            const toEmail = elements.toEmail.value.trim();
-
-            if (!serviceId || !templateId || !publicKey || !toEmail) {
-                throw new Error('Bitte alle E-Mail Felder in den Einstellungen ausfüllen');
-            }
-            if (emailjsInitialized) return true;
+            const s = Settings.get();
+            if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic || !s.toEmail) throw new Error('Bitte alle E-Mail Felder ausfüllen.');
             if (typeof emailjs === 'undefined') throw new Error('EmailJS SDK konnte nicht geladen werden');
-
-            emailjs.init(publicKey);
-            emailjsInitialized = true;
+            if (!emailjsInitialized) { emailjs.init(s.emailjsPublic); emailjsInitialized = true; }
             return true;
-        } catch (error) {
-            StatusManager.showStatus(error.message, 'error');
-            return false;
-        }
-    }
+        } catch (e) { Status.show(e.message, 'error'); return false; }
+    },
 
-    static createEmailContent() {
-        if (orders.length === 0) throw new Error('Keine Bestellungen vorhanden');
+    // *** NUR Begrüßung + Liste der Artikel (fett), KEINE Beschreibung, KEINE weiteren Blöcke ***
+    buildContent() {
+        if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
 
-        const { salutation, senderName, fromName, fromEmail } = this._readSettingsForMail();
+        const s = Settings.get();
+        const greet = (s.greeting || '').trim();
 
-        let content = `${salutation}\n\n`;
-        content += `hiermit bestelle ich folgende Artikel:\n\n`;
-
-        orders.forEach((order, index) => {
-            content += `${index + 1}. ${order.artikel} - ${order.menge} Stück\n`;
-            if (order.beschreibung) content += `   Beschreibung: ${order.beschreibung}\n`;
+        // Plaintext (ohne Fett möglich)
+        let text = '';
+        if (greet) text += `${greet}\n\n`;
+        orders.forEach((o, i) => {
+            text += `${i + 1}. ${o.artikel} – ${o.menge} Stück\n`;
         });
 
-        const totalArticles = orders.length;
-        const totalQuantity = orders.reduce((sum, order) => sum + order.menge, 0);
+        // HTML mit fetten Artikeln + Mengen-Badge
+        const htmlItems = orders.map((o) => `
+      <div class="item">
+        <div><strong class="item-title">${esc(o.artikel)}</strong> <span class="qty">${o.menge}x</span></div>
+      </div>
+    `).join('');
+        const html =
+            `<div class="mail">
+  ${greet ? `<div class="line">${esc(greet)}</div>` : ``}
+  <div style="margin:.4rem 0 0 0"></div>
+  ${htmlItems}
+</div>`;
 
-        content += `\nZusammenfassung:\n`;
-        content += `- Artikel: ${totalArticles}\n`;
-        content += `- Gesamtmenge: ${totalQuantity} Stück\n`;
-        content += `- Bestellt von: ${senderName || fromName}\n\n`;
+        return { text, html, to: s.toEmail };
+    },
 
-        content += `Mit freundlichen Grüßen\n`;
-        content += `${fromName}\n${fromEmail}\n`;
-
-        const customMessage = elements.customMessage.value.trim();
-        if (customMessage) content += `\nZusätzliche Nachricht:\n${customMessage}\n`;
-
-        content += `\n---\nGesendet via QR-Scanner App | ${new Date().toLocaleString('de-DE')}`;
-        return content;
-    }
-
-    static showPreview() {
+    showPreview() {
         try {
-            const content = this.createEmailContent();
-            elements.emailPreview.textContent = content;
-            elements.emailPreviewContainer.classList.remove('hidden');
-            StatusManager.showStatus('📧 E-Mail Vorschau wurde generiert', 'success');
-        } catch (error) {
-            StatusManager.showStatus(error.message, 'error');
-        }
-    }
-    static closePreview() { elements.emailPreviewContainer.classList.add('hidden'); }
+            const { html } = this.buildContent();
+            el.emailPreview.innerHTML = html;  // HTML-Vorschau
+            el.emailPreviewContainer.classList.remove('hidden');
+            Status.show('📧 E-Mail Vorschau wurde generiert', 'success');
+        } catch (e) { Status.show(e.message, 'error'); }
+    },
 
-    static async send() {
-        if (orders.length === 0) { StatusManager.showStatus('❌ Keine Bestellungen zum Senden', 'error'); return; }
+    async send() {
+        if (!orders.length) { Status.show('❌ Keine Bestellungen zum Senden', 'error'); return; }
         if (!this.initialize()) return;
 
-        const { fromName, fromEmail } = this._readSettingsForMail();
-        const subject = `${CONFIG.subject} – ${fromName}`;
-
-        StatusManager.showLoading(elements.sendOrder, true);
-        elements.sendingProgress.classList.remove('hidden');
-        StatusManager.showStatus('📤 E-Mail wird gesendet...', 'info');
+        Status.show('📤 E-Mail wird gesendet...', 'info');
+        el.sendingProgress.classList.remove('hidden');
 
         try {
-            const emailParams = {
-                to_email: elements.toEmail.value.trim(),
-                from_name: fromName,
-                from_email: fromEmail,
-                subject,
-                message: this.createEmailContent(),
-                order_count: String(orders.length),
-                total_quantity: String(orders.reduce((sum, order) => sum + order.menge, 0)),
-                timestamp: new Date().toLocaleString('de-DE')
-            };
-
+            const content = this.buildContent();
             const result = await emailjs.send(
-                elements.emailjsService.value.trim(),
-                elements.emailjsTemplate.value.trim(),
-                emailParams
+                el.emailjsService.value.trim(),
+                el.emailjsTemplate.value.trim(),
+                {
+                    to_email: content.to,
+                    from_name: CONFIG.fromName,
+                    from_email: CONFIG.fromEmail,
+                    subject: CONFIG.subject,
+                    message: content.text,
+                    message_text: content.text,
+                    message_html: content.html,
+                    order_count: String(orders.length),
+                    total_quantity: String(orders.reduce((s, o) => s + o.menge, 0)),
+                    timestamp: new Date().toLocaleString('de-DE'),
+                    greeting: el.greeting.value.trim()
+                }
             );
 
             if (result.status === 200) {
-                StatusManager.showStatus('✅ E-Mail wurde erfolgreich gesendet!', 'success');
-                orders = [];
-                OrderManager.updateOrderList();
-                OrderStorage.saveOrders();
-                elements.customMessage.value = '';
-                this.closePreview();
+                Status.show('✅ E-Mail wurde erfolgreich gesendet!', 'success');
+                orders = []; Order.render(); Storage.saveOrders();
+                el.customMessage.value = ''; el.emailPreviewContainer.classList.add('hidden');
             } else {
                 throw new Error(`Server antwortete mit Status: ${result.status}`);
             }
-        } catch (error) {
-            StatusManager.showStatus(error?.message || 'Unbekannter Fehler beim Senden der E-Mail', 'error');
-        } finally {
-            StatusManager.showLoading(elements.sendOrder, false);
-            elements.sendingProgress.classList.add('hidden');
-        }
-    }
+        } catch (e) { Status.show('❌ ' + (e?.text || e?.message || 'Unbekannter Fehler beim Senden'), 'error'); }
+        finally { el.sendingProgress.classList.add('hidden'); }
+    },
 
-    static async testConnection() {
+    async copy() {
+        try {
+            const { text } = this.buildContent();
+            await navigator.clipboard.writeText(text);
+            Status.show('📋 Inhalt wurde in die Zwischenablage kopiert!', 'success');
+        } catch (e) { Status.show('❌ Kopieren fehlgeschlagen', 'error'); }
+    },
+
+    async testConnection() {
         if (!this.initialize()) return;
-
-        const { fromName, fromEmail } = this._readSettingsForMail();
-        const subject = `Test - QR Scanner Verbindung – ${fromName}`;
-
-        StatusManager.showLoading(elements.testEmailjs, true);
-        StatusManager.showStatus('🔧 Teste EmailJS Verbindung...', 'info');
-
+        Status.show('🔧 Teste EmailJS Verbindung...', 'info');
         try {
-            const testParams = {
-                to_email: elements.toEmail.value.trim(),
-                from_name: fromName,
-                from_email: fromEmail,
-                subject,
-                message: 'Dies ist eine Test-E-Mail zur Überprüfung der EmailJS Verbindung.\n\nWenn Sie diese E-Mail erhalten, ist die Verbindung erfolgreich hergestellt.',
-                order_count: '0',
-                total_quantity: '0',
-                timestamp: new Date().toLocaleString('de-DE')
-            };
-
-            const result = await emailjs.send(
-                elements.emailjsService.value.trim(),
-                elements.emailjsTemplate.value.trim(),
-                testParams
+            const r = await emailjs.send(
+                el.emailjsService.value.trim(),
+                el.emailjsTemplate.value.trim(),
+                { to_email: el.toEmail.value.trim(), from_name: CONFIG.fromName, from_email: CONFIG.fromEmail, subject: 'Test', message: 'Test', message_text: 'Test', message_html: '<strong>Test</strong>' }
             );
-
-            if (result.status === 200) {
-                StatusManager.showStatus('✅ EmailJS Verbindung erfolgreich! Test-E-Mail wurde gesendet.', 'success');
-            } else {
-                throw new Error(`Test fehlgeschlagen mit Status: ${result.status}`);
-            }
-        } catch (error) {
-            StatusManager.showStatus(error?.message || 'Test fehlgeschlagen', 'error');
-        } finally {
-            StatusManager.showLoading(elements.testEmailjs, false);
-        }
+            if (r.status === 200) Status.show('✅ EmailJS Verbindung erfolgreich!', 'success');
+            else throw new Error(`Test fehlgeschlagen (${r.status})`);
+        } catch (e) { Status.show('❌ ' + (e?.text || e?.message), 'error'); }
     }
+};
+window.Email = Email;
 
-    static async copyToClipboard() {
-        try {
-            const content = this.createEmailContent();
-            await navigator.clipboard.writeText(content);
-            StatusManager.showStatus('📋 Inhalt wurde in die Zwischenablage kopiert!', 'success');
-        } catch (error) {
-            StatusManager.showStatus('❌ Kopieren fehlgeschlagen', 'error');
-        }
-    }
-}
-
-/* ====== SETTINGS ====== */
-class SettingsManager {
-    static load() {
-        const saved = OrderStorage.loadSettings();
-
-        // EmailJS + Empfänger
-        if (saved.toEmail) elements.toEmail.value = saved.toEmail;
-        if (saved.emailjsService) elements.emailjsService.value = saved.emailjsService;
-        if (saved.emailjsTemplate) elements.emailjsTemplate.value = saved.emailjsTemplate;
-        if (saved.emailjsPublic) elements.emailjsPublic.value = saved.emailjsPublic;
-
-        // Personalisierung
-        elements.emailSalutation.value = saved.salutation || CONFIG.defaults.salutation;
-        elements.senderName.value = saved.senderName || '';
-        elements.senderEmail.value = saved.senderEmail || '';
-    }
-
-    static save() {
-        const settings = {
-            // EmailJS
-            emailjsService: elements.emailjsService.value.trim(),
-            emailjsTemplate: elements.emailjsTemplate.value.trim(),
-            emailjsPublic: elements.emailjsPublic.value.trim(),
-            toEmail: elements.toEmail.value.trim(),
-            // Personalisierung
-            salutation: (elements.emailSalutation.value || CONFIG.defaults.salutation).trim(),
-            senderName: (elements.senderName.value || '').trim(),
-            senderEmail: (elements.senderEmail.value || '').trim()
+/* ========= SETTINGS ========= */
+const Settings = {
+    get() {
+        return {
+            emailjsService: el.emailjsService.value.trim(),
+            emailjsTemplate: el.emailjsTemplate.value.trim(),
+            emailjsPublic: el.emailjsPublic.value.trim(),
+            toEmail: el.toEmail.value.trim(),
+            greeting: el.greeting.value.trim(),
+            senderName: el.senderName.value.trim(),
+            signature: el.signature.value.trim()
         };
-
-        if (!this.isValidEmail(settings.toEmail)) {
-            StatusManager.showStatus('❌ Bitte eine gültige Empfänger-E-Mail eingeben', 'error');
-            return;
-        }
-        if (!settings.emailjsService || !settings.emailjsTemplate || !settings.emailjsPublic) {
-            StatusManager.showStatus('❌ Bitte alle EmailJS Felder ausfüllen', 'error');
-            return;
-        }
-        if (settings.senderEmail && !this.isValidEmail(settings.senderEmail)) {
-            StatusManager.showStatus('❌ Bitte eine gültige Absender-E-Mail eingeben oder Feld leer lassen', 'error');
-            return;
-        }
-
-        OrderStorage.saveSettings(settings);
-        StatusManager.showStatus('✅ Einstellungen wurden gespeichert!', 'success');
+    },
+    load() {
+        const s = Storage.loadSettings();
+        if (s.toEmail) el.toEmail.value = s.toEmail;
+        if (s.emailjsService) el.emailjsService.value = s.emailjsService;
+        if (s.emailjsTemplate) el.emailjsTemplate.value = s.emailjsTemplate;
+        if (s.emailjsPublic) el.emailjsPublic.value = s.emailjsPublic;
+        if (s.greeting) el.greeting.value = s.greeting;
+        if (s.senderName) el.senderName.value = s.senderName;
+        if (s.signature) el.signature.value = s.signature;
+    },
+    save() {
+        const s = this.get();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.toEmail)) { Status.show('❌ Bitte gültige Empfänger-E-Mail eingeben', 'error'); return; }
+        if (!s.emailjsService || !s.emailjsTemplate || !s.emailjsPublic) { Status.show('❌ Bitte alle EmailJS Felder ausfüllen', 'error'); return; }
+        Storage.saveSettings(s);
+        Status.show('✅ Einstellungen wurden gespeichert!', 'success');
         emailjsInitialized = false;
-        setTimeout(() => { this.closeModal(); }, 800);
-    }
+        setTimeout(() => Settings.close(), 600);
+    },
+    open() { el.settingsModal.style.display = 'flex'; document.body.style.overflow = 'hidden'; },
+    close() { el.settingsModal.style.display = 'none'; document.body.style.overflow = ''; }
+};
+window.Settings = Settings;
 
-    static isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
-    static openModal() { elements.settingsModal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
-    static closeModal() { elements.settingsModal.style.display = 'none'; document.body.style.overflow = ''; }
-}
+/* ========= EVENTS ========= */
+const Events = {
+    bind() {
+        // Scan
+        el.scanNow.addEventListener('click', () => Scanner.singleScan());
+        el.uploadImage.addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) Scanner.scanImageFile(f).finally(() => { e.target.value = ''; }); });
 
-/* ====== EVENTS ====== */
-class EventManager {
-    static setup() {
-        // Einzel-Scan
-        elements.scanNow.addEventListener('click', () => QRScanner.singleScan());
-
-        // Foto/Upload scannen
-        if (elements.uploadImage) {
-            elements.uploadImage.addEventListener('change', (e) => {
-                const file = e.target.files && e.target.files[0];
-                if (file) Promise.resolve(QRScanner.scanImageFile(file)).finally(() => { e.target.value = ''; });
-            });
-        }
-
-        // Mengenfeld delegiert
-        elements.orderList.addEventListener('change', (e) => {
-            const t = e.target;
-            if (t && t.classList?.contains('qty-input')) {
-                OrderManager.setQuantity(parseInt(t.dataset.index, 10), t.value);
+        // Menge
+        el.orderList.addEventListener('input', (e) => {
+            if (e.target && e.target.classList.contains('qty-input')) {
+                const idx = parseInt(e.target.dataset.index, 10);
+                const raw = String(e.target.value || '').replace(/[^\d]/g, ''); e.target.value = raw;
+                if (raw !== '') Order.setQty(idx, raw);
             }
         });
-        elements.orderList.addEventListener('input', (e) => {
-            const t = e.target;
-            if (t && t.classList?.contains('qty-input')) {
-                t.value = t.value.replace(/[^\d]/g, '');
+        el.orderList.addEventListener('change', (e) => {
+            if (e.target && e.target.classList.contains('qty-input')) {
+                const idx = parseInt(e.target.dataset.index, 10); Order.setQty(idx, e.target.value);
             }
         });
 
-        // Order-Buttons
-        elements.clearOrders.addEventListener('click', () => OrderManager.clearOrders());
+        // Orders
+        el.clearOrders.addEventListener('click', () => Order.clear());
 
-        // E-Mail
-        elements.previewEmail.addEventListener('click', () => EmailManager.showPreview());
-        elements.sendOrder.addEventListener('click', () => EmailManager.send());
-        elements.copyToClipboard.addEventListener('click', () => EmailManager.copyToClipboard());
-        elements.closePreview.addEventListener('click', () => EmailManager.closePreview());
+        // Mail
+        el.previewEmail.addEventListener('click', () => Email.showPreview());
+        el.sendOrder.addEventListener('click', () => Email.send());
+        el.copyToClipboard.addEventListener('click', () => Email.copy());
+        el.closePreview.addEventListener('click', () => el.emailPreviewContainer.classList.add('hidden'));
 
         // Settings
-        elements.testEmailjs.addEventListener('click', () => EmailManager.testConnection());
-        elements.saveSettings.addEventListener('click', () => SettingsManager.save());
-        elements.menuToggle.addEventListener('click', () => SettingsManager.openModal());
-        elements.closeModal.addEventListener('click', () => SettingsManager.closeModal());
-        elements.settingsModal.addEventListener('click', (e) => { if (e.target === elements.settingsModal) SettingsManager.closeModal(); });
+        el.menuToggle.addEventListener('click', () => Settings.open());
+        el.closeModal.addEventListener('click', () => Settings.close());
+        el.settingsModal.addEventListener('click', (e) => { if (e.target === el.settingsModal) Settings.close(); });
+        el.saveSettings.addEventListener('click', () => Settings.save());
+        if (el.testEmailjs) el.testEmailjs.addEventListener('click', () => Email.testConnection());
 
-        // Tab-Wechsel: Kamera pausieren/fortsetzen
+        // Tabwechsel → Kamera aus
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) QRScanner.stopCamera();
-            else QRScanner.startCamera().catch(() => { });
+            if (document.hidden) {
+                try { if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); videoStream = null; el.qrVideo.srcObject = null; } } catch { }
+            }
         });
-    }
-}
 
-/* ====== APP ====== */
+        // Fehler
+        window.addEventListener('error', (e) => { console.error(e); Status.show('❌ Ein unerwarteter Fehler ist aufgetreten', 'error'); });
+        window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); Status.show(`❌ ${(e?.reason?.message) || 'Fehler bei asynchroner Operation'}`, 'error'); e.preventDefault(); });
+    }
+};
+
+/* ========= APP ========= */
 class App {
     static async init() {
-        validateElements();
+        try {
+            orders = Storage.loadOrders();
+            Order.render();
+            Settings.load();
+            Events.bind();
 
-        // persistente Bestellungen laden
-        orders = OrderStorage.loadOrders();
-        OrderManager.updateOrderList();
+            // Kamera vorwärmen, wenn erlaubt
+            if (Storage.getCameraAllowed()) { Scanner.ensureCamera().catch(() => { }); }
 
-        // Einstellungen laden
-        SettingsManager.load();
-
-        // Events
-        EventManager.setup();
-
-        // Kamera automatisch starten (wenn erlaubt, sonst prompt)
-        const hadPermission = await QRScanner.hasGrantedPermissionHint();
-        if (hadPermission) {
-            await QRScanner.startCamera();
-        } else {
-            await QRScanner.startCamera(); // lässt Browser-Prompt erscheinen
-        }
-
-        StatusManager.showStatus('✅ App ist bereit', 'success', 2000);
+            Status.show('✅ App ist bereit', 'success', 2000);
+        } catch (e) { Status.show(`❌ Initialisierungsfehler: ${e.message}`, 'error'); }
     }
 }
 
-/* ====== GLOBAL ====== */
-window.OrderManager = OrderManager;
-window.QRScanner = QRScanner;
-window.EmailManager = EmailManager;
-
-window.addEventListener('error', (e) => {
-    console.error('💥 Globaler Fehler:', e.error);
-    StatusManager.showStatus('❌ Ein unerwarteter Fehler ist aufgetreten', 'error');
-});
-window.addEventListener('unhandledrejection', (e) => {
-    const msg = (e && e.reason && (e.reason.message || String(e.reason))) || 'Unbekannter Fehler';
-    console.error('💥 Unbehandelter Promise Fehler:', e.reason);
-    StatusManager.showStatus(`❌ ${msg}`, 'error');
-    e.preventDefault();
-});
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => App.init());
-} else {
-    App.init();
-}
+/* ========= START ========= */
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => App.init()); }
+else { App.init(); }
