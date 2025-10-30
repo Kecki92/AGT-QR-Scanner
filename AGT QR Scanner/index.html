@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alu Glas Technik - QR Scanner</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./modal.css" />
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="mobile-header">
+        <div class="logo-container">
+            <img src="./logo.png" alt="Firmenlogo" class="company-logo" />
+        </div>
+        <button class="menu-toggle" id="menu-toggle" aria-label="Einstellungen öffnen">⚙️</button>
+    </header>
+
+    <!-- Einstellungen Modal -->
+    <div class="modal" id="settings-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Einstellungen</h2>
+                <button class="close-modal" id="close-modal" aria-label="Modal schließen">&times;</button>
+            </div>
+
+            <section class="section">
+                <h3 class="section-subtitle">E-Mail Einstellungen</h3>
+
+                <div class="form-group">
+                    <label for="emailjs-service">Service ID</label>
+                    <input id="emailjs-service" type="text" placeholder="service_xxxxx" value="service_8ys1b8k" />
+                </div>
+
+                <div class="form-group">
+                    <label for="emailjs-template">Template ID</label>
+                    <input id="emailjs-template" type="text" placeholder="template_xxxxx" value="template_3t1s9qj" />
+                </div>
+
+                <div class="form-group">
+                    <label for="emailjs-public">Public Key</label>
+                    <input id="emailjs-public" type="text" placeholder="public_xxxxx" value="Z_1k1jXK8Qk9t8z3N" />
+                </div>
+
+                <div class="form-group">
+                    <label for="to-email">Empfänger E-Mail</label>
+                    <input id="to-email" type="email" placeholder="empfaenger@example.com"
+                        value="keckeisfabian@outlook.com" />
+                </div>
+
+                <h3 class="section-subtitle" style="margin-top:1rem;">Absender & Anrede</h3>
+
+                <div class="form-group">
+                    <label for="greeting">Anrede (z. B. „Hallo Wolfi,“)</label>
+                    <input id="greeting" type="text" placeholder="Hallo …," />
+                </div>
+
+                <div class="form-group">
+                    <label for="sender-name">Absender-Name (wer bestellt)</label>
+                    <input id="sender-name" type="text" placeholder="Max Mustermann" />
+                </div>
+
+                <div class="form-group">
+                    <label for="signature">Signatur (z. B. Abteilung, Tel., E-Mail)</label>
+                    <textarea id="signature" placeholder="Firma | Tel. | E-Mail"></textarea>
+                </div>
+
+                <div class="button-row">
+                    <button id="test-emailjs" class="btn btn-info">Verbindung testen</button>
+                    <button id="save-settings" class="btn btn-success">Speichern</button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <main class="container">
+        <p class="description">Scanne QR-Codes und erstelle Bestellungen</p>
+
+        <!-- Scanner -->
+        <section class="section" aria-labelledby="scanner-title">
+            <h2 class="section-title" id="scanner-title">📷 QR-Code scannen</h2>
+
+            <div class="camera-permission">
+                <p>Zum Scannen Kamera-Zugriff erlauben</p>
+            </div>
+
+            <div id="scanner-container" class="hidden">
+                <video id="qr-video" autoplay muted playsinline aria-label="QR Code Scanner Video"></video>
+                <canvas id="qr-canvas" class="hidden"></canvas>
+                <div class="scanner-overlay">
+                    <div class="scanner-frame" aria-hidden="true"></div>
+                </div>
+            </div>
+
+            <div class="scanner-controls">
+                <div class="button-row">
+                    <button id="scan-now" class="btn btn-primary">Jetzt scannen</button>
+
+                    <label class="btn btn-warning" for="upload-image">Foto/Upload</label>
+                    <input id="upload-image" type="file" accept="image/*" capture="environment" class="sr-only" />
+                </div>
+                <div id="scanner-status" class="status-message info">Bereit zum Scannen</div>
+            </div>
+        </section>
+
+        <!-- Bestellungen -->
+        <section class="section" aria-labelledby="orders-title">
+            <h2 class="section-title" id="orders-title">🛒 Bestellungen</h2>
+
+            <div class="order-summary">
+                <div class="summary-item">
+                    <span class="summary-label">Artikel</span>
+                    <span id="total-articles" class="summary-value">0</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Gesamt</span>
+                    <span id="total-quantity" class="summary-value">0</span>
+                </div>
+            </div>
+
+            <div id="order-list" class="order-list" aria-live="polite"></div>
+
+            <div class="button-row">
+                <button id="clear-orders" class="btn btn-danger">Alle löschen</button>
+            </div>
+        </section>
+
+        <!-- Versand -->
+        <section class="section" aria-labelledby="shipping-title">
+            <h2 class="section-title" id="shipping-title">📧 Bestellung senden</h2>
+
+            <div class="form-group">
+                <label for="custom-message">Nachricht (optional)</label>
+                <textarea id="custom-message" placeholder="Zusätzliche Informationen..."></textarea>
+            </div>
+
+            <div id="email-preview-container" class="hidden">
+                <div class="preview-header">
+                    <span>E-Mail Vorschau</span>
+                    <button id="close-preview" class="btn-close" aria-label="Vorschau schließen">✕</button>
+                </div>
+                <div class="email-preview" id="email-preview"></div>
+            </div>
+
+            <div class="send-controls">
+                <div class="button-row">
+                    <button id="preview-email" class="btn btn-info">Vorschau</button>
+                    <button id="send-order" class="btn btn-success">Senden</button>
+                    <button id="copy-to-clipboard" class="btn btn-info">Kopieren</button>
+                </div>
+            </div>
+
+            <div id="email-status" aria-live="polite"></div>
+
+            <div id="sending-progress" class="hidden">
+                <div class="status-message info">E-Mail wird gesendet...</div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script src="./app.js"></script>
+</body>
+
+</html>

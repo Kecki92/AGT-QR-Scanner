@@ -1,0 +1,143 @@
+/* ====== MODAL ====== */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, .8);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    padding: 1rem;
+    align-items: center;
+    justify-content: center;
+    animation: modal-fade-in .3s ease-out
+}
+
+@keyframes modal-fade-in {
+    from {
+        opacity: 0;
+        backdrop-filter: blur(0)
+    }
+
+    to {
+        opacity: 1;
+        backdrop-filter: blur(8px)
+    }
+}
+
+.modal-content {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 20px;
+    max-height: 90vh;
+    overflow-y: auto;
+    margin: 0 auto;
+    max-width: 520px;
+    width: 100%;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, .25);
+    border: 1px solid #e2e8f0;
+    animation: modal-slide-up .3s ease-out
+}
+
+@keyframes modal-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(20px)
+    }
+
+    to {
+        opacity: 1;
+        transform: none
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 3px solid #3b82f6
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0
+}
+
+.close-modal {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #64748b;
+    padding: .5rem;
+    border-radius: 8px;
+    transition: .3s;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center
+}
+
+.close-modal:hover {
+    background: #f1f5f9;
+    color: #374151;
+    transform: scale(1.1)
+}
+
+.close-modal:active {
+    transform: scale(.95)
+}
+
+@media (prefers-color-scheme:dark) {
+    .modal-content {
+        background: #1e293b;
+        border-color: #475569
+    }
+
+    .modal-title {
+        color: #f1f5f9
+    }
+
+    .close-modal:hover {
+        background: #334155;
+        color: #e5e7eb
+    }
+}
+
+@media (max-width:768px) {
+    .modal {
+        padding: .5rem
+    }
+
+    .modal-content {
+        padding: 1.5rem;
+        border-radius: 16px
+    }
+
+    .modal-header {
+        margin-bottom: 1.25rem;
+        padding-bottom: .875rem
+    }
+
+    .modal-title {
+        font-size: 1.25rem
+    }
+}
+
+@media (max-width:480px) {
+    .modal-content {
+        padding: 1.25rem;
+        border-radius: 12px
+    }
+
+    .modal-header {
+        margin-bottom: 1rem
+    }
+}
