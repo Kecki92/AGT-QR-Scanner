@@ -30,8 +30,7 @@ const el = {
     totalQuantity: $('total-quantity'),
     clearOrders: $('clear-orders'),
     // Mail UI
-    customMessage: $('custom-message'),
-    emailPreview: $('email-preview'),
+    emailPreviewCard: $('email-preview-card'),
     emailPreviewContainer: $('email-preview-container'),
     closePreview: $('close-preview'),
     previewEmail: $('preview-email'),
@@ -54,7 +53,7 @@ const el = {
 };
 
 /* ====== UTILS ====== */
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, "&#039;");
 const Status = {
     show(msg, type = 'info', t = 3000) { if (!el.emailStatus) return; el.emailStatus.innerHTML = `<div class="status-message ${type}">${msg}</div>`; if (type === 'success' && t > 0) { setTimeout(() => { el.emailStatus.innerHTML = ''; }, t); } },
     scan(msg, type = 'info') { el.scannerStatus.className = `status-message ${type}`; el.scannerStatus.textContent = msg; }
@@ -211,39 +210,80 @@ const Email = {
         } catch (e) { Status.show(e.message, 'error'); return false; }
     },
 
-    // *** GENAU DEIN WUNSCHFORMAT ***
+    /* Moderner, klarer Inhalt:
+       - HTML: helle Card mit Ordered List, fette Items
+       - TEXT: reine Klartext-Variante
+    */
     buildContent() {
         if (!orders.length) throw new Error('Keine Bestellungen vorhanden');
         const s = Settings.get();
         const greet = (s.greeting || '').trim();
         const sign = (s.signature || '').trim();
 
-        // TEXT-Version
+        // TEXT
         let text = '';
         if (greet) text += greet + '\n\n';
         orders.forEach((o, i) => { text += `${i + 1}. ${o.artikel} – ${o.menge}\n`; });
         text += `\nZusammenfassung:\n\t- Gesamtanzahl der Artikel: ${orders.length}\n`;
         if (sign) text += `\n${sign}\n`;
 
-        // HTML-Version für Vorschau
-        const htmlItems = orders.map((o, i) => `<div class="item"><strong>${i + 1}. ${esc(o.artikel)} – ${o.menge}</strong></div>`).join('');
+        // HTML (inline styles => Mailclient-sicher)
+        const htmlItems = orders.map((o, i) => `
+      <li style="margin:6px 0;"><strong style="font-weight:800;">${i + 1}. ${esc(o.artikel)} – ${o.menge}</strong></li>
+    `).join('');
         const html = `
-      <div class="mail">
-        ${greet ? `<div class="line">${esc(greet)}</div>` : ''}
-        ${htmlItems}
-        <div class="line" style="margin-top:.8rem">
-          <strong>Zusammenfassung:</strong><br>
-          &nbsp;&nbsp;- Gesamtanzahl der Artikel: ${orders.length}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f3f4f6;padding:16px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+              <tr>
+                <td style="padding:16px 20px;border-bottom:1px solid #eef2f7;background:#f8fafc;">
+                  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0f172a;font-size:16px;font-weight:700;">Bestellung</div>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:20px;">
+                  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0f172a;font-size:15px;line-height:1.55;">
+                    ${greet ? `<p style="margin:0 0 12px 0;">${esc(greet)}</p>` : ''}
+                    <ol style="margin:0 0 12px 20px;padding:0;">${htmlItems}</ol>
+                    <div style="margin-top:16px;padding-top:12px;border-top:1px solid #eef2f7;">
+                      <div style="font-weight:700;margin-bottom:6px;">Zusammenfassung:</div>
+                      <div>&nbsp;&nbsp;- Gesamtanzahl der Artikel: ${orders.length}</div>
+                    </div>
+                    ${sign ? `<p style="margin:16px 0 0 0;font-weight:700;">${esc(sign)}</p>` : ''}
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>`;
+
+        // Vorschau Card (in der App)
+        const preview = `
+      <div class="mail-header"><div class="mail-title">Bestellung</div></div>
+      <div class="mail-body">
+        ${greet ? `<p class="greeting">${esc(greet)}</p>` : ''}
+        <ol>
+          ${orders.map((o, i) => `<li><strong>${i + 1}. ${esc(o.artikel)} – ${o.menge}</strong></li>`).join('')}
+        </ol>
+        <div class="summary">
+          <div><strong>Zusammenfassung:</strong></div>
+          <div>&nbsp;&nbsp;- Gesamtanzahl der Artikel: ${orders.length}</div>
         </div>
-        ${sign ? `<div class="line"><strong>${esc(sign)}</strong></div>` : ''}
+        ${sign ? `<div class="signature">${esc(sign)}</div>` : ''}
       </div>`;
 
-        return { text, html, to: s.toEmail };
+        return { text, html, preview, to: s.toEmail };
     },
 
-    showPreview() {
-        try { const { html } = this.buildContent(); el.emailPreview.innerHTML = html; el.emailPreviewContainer.classList.remove('hidden'); Status.show('📧 E-Mail Vorschau wurde generiert', 'success'); }
-        catch (e) { Status.show(e.message, 'error'); }
+    renderPreview() {
+        try {
+            const { preview } = this.buildContent();
+            el.emailPreviewCard.innerHTML = preview;
+            el.emailPreviewContainer.classList.remove('hidden');
+            Status.show('📧 E-Mail Vorschau wurde generiert', 'success');
+        } catch (e) { Status.show(e.message, 'error'); }
     },
 
     async send() {
@@ -254,36 +294,37 @@ const Email = {
         el.sendingProgress.classList.remove('hidden');
 
         try {
-            const { text, html, to } = this.buildContent();
+            const s = Settings.get();
+            const { text, html } = this.buildContent();
             const r = await emailjs.send(
-                el.emailjsService.value.trim(),
-                el.emailjsTemplate.value.trim(),
+                s.emailjsService,
+                s.emailjsTemplate,
                 {
-                    to_email: to,
+                    to_email: s.toEmail,
                     from_name: CONFIG.fromName,
                     from_email: CONFIG.fromEmail,
                     subject: CONFIG.subject,
                     message: text,           // Text
                     message_text: text,
-                    message_html: html,      // HTML
+                    message_html: html,      // HTML (bitte im EmailJS-Template {{message_html}} verwenden)
                     order_count: String(orders.length),
-                    total_quantity: String(orders.reduce((s, o) => s + o.menge, 0)),
+                    total_quantity: String(orders.reduce((sum, o) => sum + o.menge, 0)),
                     timestamp: new Date().toLocaleString('de-DE'),
-                    greeting: el.greeting.value.trim(),
-                    signature: el.signature.value.trim()
+                    greeting: s.greeting || '',
+                    signature: s.signature || ''
                 }
             );
 
             if (r.status === 200) {
                 Status.show('✅ E-Mail wurde erfolgreich gesendet!', 'success');
                 orders = []; Order.render(); Storage.saveOrders();
-                el.customMessage.value = ''; el.emailPreviewContainer.classList.add('hidden');
+                el.emailPreviewContainer.classList.add('hidden');
             } else { throw new Error(`Server antwortete mit Status: ${r.status}`); }
         } catch (e) { Status.show('❌ ' + (e?.text || e?.message || 'Fehler beim Senden'), 'error'); }
         finally { el.sendingProgress.classList.add('hidden'); }
     },
 
-    async copy() {
+    async copyText() {
         try { const { text } = this.buildContent(); await navigator.clipboard.writeText(text); Status.show('📋 Inhalt kopiert!', 'success'); }
         catch { Status.show('❌ Kopieren fehlgeschlagen', 'error'); }
     },
@@ -292,11 +333,16 @@ const Email = {
         if (!this.initialize()) return;
         Status.show('🔧 Teste EmailJS Verbindung …', 'info');
         try {
-            const r = await emailjs.send(
-                el.emailjsService.value.trim(),
-                el.emailjsTemplate.value.trim(),
-                { to_email: el.toEmail.value.trim(), from_name: CONFIG.fromName, from_email: CONFIG.fromEmail, subject: 'Test', message: 'Test', message_text: 'Test', message_html: '<strong>Test</strong>' }
-            );
+            const s = Settings.get();
+            const r = await emailjs.send(s.emailjsService, s.emailjsTemplate, {
+                to_email: s.toEmail,
+                from_name: CONFIG.fromName,
+                from_email: CONFIG.fromEmail,
+                subject: 'Test',
+                message: 'Test',
+                message_text: 'Test',
+                message_html: '<strong>Test</strong>'
+            });
             if (r.status === 200) Status.show('✅ EmailJS Verbindung erfolgreich!', 'success');
             else throw new Error(`Test fehlgeschlagen (${r.status})`);
         } catch (e) { Status.show('❌ ' + (e?.text || e?.message), 'error'); }
@@ -362,9 +408,9 @@ const Events = {
         el.clearOrders.addEventListener('click', () => Order.clear());
 
         // Mail
-        el.previewEmail.addEventListener('click', () => Email.showPreview());
+        el.previewEmail.addEventListener('click', () => Email.renderPreview());
         el.sendOrder.addEventListener('click', () => Email.send());
-        el.copyToClipboard.addEventListener('click', () => Email.copy());
+        el.copyToClipboard.addEventListener('click', () => Email.copyText());
         el.closePreview.addEventListener('click', () => el.emailPreviewContainer.classList.add('hidden'));
 
         // Settings

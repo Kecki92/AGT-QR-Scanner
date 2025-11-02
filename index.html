@@ -121,24 +121,21 @@
         <section class="section" aria-labelledby="shipping-title">
             <h2 class="section-title" id="shipping-title">📧 Bestellung senden</h2>
 
-            <div class="form-group">
-                <label for="custom-message">Notiz (optional, wird nicht automatisch verschickt):</label>
-                <textarea id="custom-message" placeholder="Zusätzliche Infos nur für dich …"></textarea>
-            </div>
-
             <div id="email-preview-container" class="hidden">
                 <div class="preview-header">
                     <span>E-Mail Vorschau</span>
                     <button id="close-preview" class="btn-close" aria-label="Vorschau schließen">✕</button>
                 </div>
-                <div class="email-preview" id="email-preview"></div>
+                <div class="email-preview">
+                    <div id="email-preview-card" class="mail-card"></div>
+                </div>
             </div>
 
             <div class="send-controls">
                 <div class="button-row">
                     <button id="preview-email" class="btn btn-info">Vorschau</button>
                     <button id="send-order" class="btn btn-success">Senden</button>
-                    <button id="copy-to-clipboard" class="btn btn-info">Kopieren</button>
+                    <button id="copy-to-clipboard" class="btn btn-info">Kopieren (Text)</button>
                 </div>
             </div>
 
