@@ -109,7 +109,7 @@ const Order = {
         <div class="quantity-controls">
           <label class="sr-only" for="qty-${i}">Menge</label>
           <span>Menge:</span>
-          <input id="qty-${i}" class="qty-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" value="${o.menge}" data-index="${i}" aria-label="Menge für ${esc(o.artikel)}">
+          <input id="qty-${i}" class="qty-input" type="number" inputmode="numeric" pattern="[0-9]*" min="1" step="1" value="${o.menge}" data-index="${i}" aria-label="Menge für ${esc(o.artikel)}" style="max-width:120px;">
           <span style="opacity:.8">${esc(o.einheit)}</span>
           <button class="btn btn-danger quantity-btn" onclick="Order.remove(${i})">🗑️</button>
         </div>
@@ -137,6 +137,7 @@ const Scanner = {
             return true;
         } catch (e) { this.handleCameraError(e); return false; }
     },
+
     async singleScan() {
         const ok = await this.ensureCamera(); if (!ok) return;
         const v = el.qrVideo; if (!v.videoWidth || !v.videoHeight) { Status.scan('⏳ Kamera initialisiert noch…', 'info'); return; }
@@ -148,6 +149,7 @@ const Scanner = {
             if (code && code.data) this.handle(code.data); else Status.scan('❌ Kein QR-Code im Bild gefunden', 'error');
         } catch (err) { Status.scan(`❌ ${err?.message || err}`, 'error'); }
     },
+
     async scanImageFile(file) {
         if (!file) return;
         try {
@@ -160,6 +162,7 @@ const Scanner = {
             if (code && code.data) this.handle(code.data); else Status.show('❌ In diesem Bild wurde kein QR-Code erkannt', 'error');
         } catch (err) { Status.show(`❌ ${err?.message || err}`, 'error'); }
     },
+
     handle(data) {
         if (!data || !String(data).trim()) { Status.scan('❌ Ungültiger QR-Code', 'error'); return; }
         try {
@@ -169,67 +172,27 @@ const Scanner = {
         } catch { Status.scan('❌ Fehler beim Verarbeiten des QR-Codes', 'error'); }
     },
 
-    /* NEU: Robuste Erkennung
-       - Default: menge=1, einheit='Stk'
-       - Nur explizite Muster setzen die Menge:
-         * Bestellmenge|Menge|Anzahl|Qty : <zahl> [Einheit]
-         * ... – <zahl> [Einheit]    (en dash oder Bindestrich, am Ende)
-       - Alles andere (ISO 4017, M4 x 35, …) wird ignoriert.
-    */
+    // --- WICHTIG: Menge NIE aus dem QR-Text ableiten! Immer 1 Stk. ---
     parse(data) {
+        // Selbst wenn JSON im QR ist: Menge ignorieren → 1 Stk, Artikel aus Feld oder Rohtext
         try {
             const o = JSON.parse(data);
-            const artikel = o.artikel || o.name || o.title || o.product || 'Unbekannter Artikel';
-            const menge = Math.max(1, Number(o.menge || o.quantity || o.amount || 1));
-            const einheit = (o.einheit || o.unit || 'Stk').toString();
-            return { artikel, menge, einheit };
-        } catch { return this.parseText(String(data)); }
+            const artikel = o.artikel || o.name || o.title || o.product || String(data).trim();
+            return { artikel: String(artikel).trim(), menge: 1, einheit: 'Stk' };
+        } catch {
+            return this.parseText(String(data));
+        }
     },
+
+    // Nimmt den QR-Text 1:1 als Artikel; Menge immer 1 Stk
     parseText(text) {
-        const clean = text.replace(/\r/g, '').trim();
-        const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
-
-        let artikel = 'Unbekannter Artikel';
-        let menge = 1;                 // DEFAULT
-        let einheit = 'Stk';
-
-        // 1) Explizite Menge/Einheit wie "Bestellmenge: 500 STK", "Menge 12", "Anzahl-3", "Qty: 20 pcs"
-        const explicitRe = /(Bestellmenge|Menge|Anzahl|Qty)\s*[:\-]?\s*(\d{1,6})\s*(STK|Stk|Stück|Stck|PCS|pcs|Pack|Karton|Beutel)?/i;
-        const explicitMatch = clean.match(explicitRe);
-        if (explicitMatch) {
-            menge = parseInt(explicitMatch[2], 10);
-            if (explicitMatch[3]) einheit = explicitMatch[3].replace(/pcs/i, 'PCS').replace(/stk|stück|stck/i, 'Stk');
-        } else {
-            // 2) Am Ende nach Gedankenstrich: "... – 1 Stück" oder "... - 3 Stk"
-            const dashRe = /[-–]\s*(\d{1,6})\s*(STK|Stk|Stück|Stck|PCS|pcs|Pack|Karton|Beutel)?\s*$/i;
-            const dashMatch = clean.match(dashRe);
-            if (dashMatch) {
-                menge = parseInt(dashMatch[1], 10);
-                if (dashMatch[2]) einheit = dashMatch[2].replace(/pcs/i, 'PCS').replace(/stk|stück|stck/i, 'Stk');
-            }
-        }
-
-        // 3) Artikeltitel zusammensetzen – alle Zeilen ohne offensichtliche Mengenzeilen
-        const artikelLines = [];
-        for (const line of lines) {
-            if (/^(ALU|GLAS)$/i.test(line)) continue;
-            if (explicitRe.test(line)) continue;
-            if (/[-–]\s*\d{1,6}\s*(STK|Stk|Stück|Stck|PCS|pcs|Pack|Karton|Beutel)?\s*$/.test(line)) continue;
-            // vermeide Zeilen die nur aus Zahlen bestehen
-            if (/^\d+(\s*[xX]\s*\d+)?$/.test(line)) continue;
-            artikelLines.push(line);
-        }
-        artikel = artikelLines.join(' ').replace(/\s+/g, ' ').trim() || artikel;
-
-        // 4) Bereinigen (keine Mengenreste etc.)
-        artikel = artikel
-            .replace(/^ALU\s*-?\s*/i, '')
-            .replace(/^GLAS\s*-?\s*/i, '')
-            .replace(/\s*Bestellmenge:.*$/i, '')
+        const artikel = String(text)
+            .replace(/\r/g, '')
+            .replace(/\s+/g, ' ')
             .trim()
-            .substring(0, 120);
+            .replace(/[.;,\s]+$/, ''); // optional: letztes Satzzeichen entfernen
 
-        return { artikel, menge: Math.max(1, menge), einheit };
+        return { artikel: artikel || 'Unbekannter Artikel', menge: 1, einheit: 'Stk' };
     },
 
     handleCameraError(e) {
@@ -268,7 +231,7 @@ const Email = {
         text += `\nZusammenfassung:\n\t- Gesamtanzahl der Artikel: ${orders.length}\n`;
         if (sign) text += `\n${sign}\n`;
 
-        // HTML (inline Styles, fett + Einheit)
+        // HTML (fett + übersichtlich)
         const htmlItems = orders.map((o, i) => `
       <li style="margin:6px 0;"><strong style="font-weight:800;">${i + 1}. ${esc(o.artikel)} – ${o.menge} ${esc(o.einheit)}</strong></li>
     `).join('');
@@ -296,7 +259,7 @@ const Email = {
         </tr>
       </table>`;
 
-        // Vorschau-Card für die App
+        // Vorschau-Card in der App
         const preview = `
       <div class="mail-header"><div class="mail-title">Bestellung</div></div>
       <div class="mail-body">
@@ -341,9 +304,9 @@ const Email = {
                     from_name: CONFIG.fromName,
                     from_email: CONFIG.fromEmail,
                     subject: CONFIG.subject,
-                    message: text,           // Text
+                    message: text,
                     message_text: text,
-                    message_html: html,      // HTML
+                    message_html: html,
                     order_count: String(orders.length),
                     total_quantity: String(orders.reduce((sum, o) => sum + o.menge, 0)),
                     timestamp: new Date().toLocaleString('de-DE'),
